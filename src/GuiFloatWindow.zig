@@ -2,6 +2,7 @@ const std: type = @import("std");
 const rl: type = @import("raylib");
 const rg: type = @import("raygui");
 const sb: type = @import("GuiScrollbar.zig");
+const Consts: type = @import("Consts.zig");
 
 pub const GuiFloatWindowEventName: type = enum {
     drag_start,
@@ -125,6 +126,46 @@ pub const GuiFloatWindow: type = struct {
 
     const HEADER_HEIGHT: i32 = 23;
     const SCROLLBAR_SIZE: i32 = 16;
+    const SCROLLBAR_BAR_SCALE: f32 = 0.15;
+
+    pub fn setSize(self: *GuiFloatWindow, width: i32, height: i32) void {
+        const delta: rl.Vector2 = rl.Vector2.init(
+            @as(f32, @floatFromInt(width)) - self.bodyRect.width,
+            @as(f32, @floatFromInt(height)) - self.bodyRect.height,
+        );
+
+        if (delta.x == 0 and delta.y == 0) {
+            return;
+        }
+
+        self.headerRect.width += delta.x;
+
+        self.bodyRect.width += delta.x;
+        self.bodyRect.height += delta.y;
+
+        self.windowRect.width += delta.x;
+        self.windowRect.height += delta.y;
+
+        if (self.scrollbarVertical) |*scrollbarVertical| {
+            self.scrollbarVerticalRect.x += delta.x;
+            self.scrollbarVerticalRect.height += delta.y;
+
+            scrollbarVertical.rect.x += delta.x;
+            scrollbarVertical.rect.height += delta.y;
+
+            scrollbarVertical.setSize(@as(i32, @intFromFloat(scrollbarVertical.rect.height * GuiFloatWindow.SCROLLBAR_BAR_SCALE)));
+        }
+
+        if (self.scrollbarHorizontal) |*scrollbarHorizontal| {
+            self.scrollbarHorizontalRect.y += delta.y;
+            self.scrollbarHorizontalRect.width += delta.x;
+
+            scrollbarHorizontal.rect.y += delta.y;
+            scrollbarHorizontal.rect.width += delta.x;
+
+            scrollbarHorizontal.setSize(@as(i32, @intFromFloat(scrollbarHorizontal.rect.width * GuiFloatWindow.SCROLLBAR_BAR_SCALE)));
+        }
+    }
 
     pub fn scrollbarEventHandler(event: sb.GuiScrollbarEvent) void {
         switch (event) {
@@ -266,7 +307,7 @@ pub const GuiFloatWindow: type = struct {
                 y + GuiFloatWindow.HEADER_HEIGHT + borderWidth,
                 GuiFloatWindow.SCROLLBAR_SIZE,
                 height,
-                @as(i32, @intFromFloat(@as(f32, @floatFromInt(height)) * 0.15)),
+                @as(i32, @intFromFloat(@as(f32, @floatFromInt(height)) * GuiFloatWindow.SCROLLBAR_BAR_SCALE)),
                 .vertical,
             );
 
@@ -282,7 +323,7 @@ pub const GuiFloatWindow: type = struct {
                 y + GuiFloatWindow.HEADER_HEIGHT + height + borderWidth,
                 width,
                 GuiFloatWindow.SCROLLBAR_SIZE,
-                @as(i32, @intFromFloat(@as(f32, @floatFromInt(width)) * 0.15)),
+                @as(i32, @intFromFloat(@as(f32, @floatFromInt(width)) * GuiFloatWindow.SCROLLBAR_BAR_SCALE)),
                 .horizontal,
             );
 
@@ -420,11 +461,24 @@ pub const GuiFloatWindow: type = struct {
                     break :handleHeader;
                 }
 
-                const delta: rl.Vector2 = rl.getMouseDelta();
+                var delta: rl.Vector2 = rl.getMouseDelta();
 
                 if (delta.x == 0 and delta.y == 0) {
                     break :handleHeader;
                 }
+
+                const oldPosition: rl.Vector2 = rl.Vector2.init(self.windowRect.x, self.windowRect.y);
+
+                self.windowRect.x = self.windowRect.x + delta.x;
+
+                self.windowRect.y = std.math.clamp(
+                    self.windowRect.y + delta.y,
+                    @as(f32, @floatFromInt(Consts.TOOLBAR_HEIGHT)),
+                    @as(f32, @floatFromInt(rl.getScreenHeight())) - self.headerRect.height,
+                );
+
+                delta.x = self.windowRect.x - oldPosition.x;
+                delta.y = self.windowRect.y - oldPosition.y;
 
                 self.headerRect.x += delta.x;
                 self.headerRect.y += delta.y;
@@ -447,9 +501,6 @@ pub const GuiFloatWindow: type = struct {
                     scrollbarHorizontal.rect.x += delta.x;
                     scrollbarHorizontal.rect.y += delta.y;
                 }
-
-                self.windowRect.x += delta.x;
-                self.windowRect.y += delta.y;
 
                 self.emit(
                     .{
