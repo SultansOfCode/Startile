@@ -1,0 +1,1 @@
+cls && zig build run
