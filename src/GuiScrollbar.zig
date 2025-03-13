@@ -14,22 +14,16 @@ pub const GuiScrollbarEventName: type = enum {
     scroll_end,
 };
 
+pub const GuiScrollbarScrollEvent: type = struct {
+    window: *fw.GuiFloatWindow,
+    scrollbar: *GuiScrollbar,
+    value: f32,
+};
+
 pub const GuiScrollbarEvent = union(GuiScrollbarEventName) {
-    scroll_start: struct {
-        window: *fw.GuiFloatWindow,
-        scrollbar: *GuiScrollbar,
-        value: f32,
-    },
-    scroll_moved: struct {
-        window: *fw.GuiFloatWindow,
-        scrollbar: *GuiScrollbar,
-        value: f32,
-    },
-    scroll_end: struct {
-        window: *fw.GuiFloatWindow,
-        scrollbar: *GuiScrollbar,
-        value: f32,
-    },
+    scroll_start: GuiScrollbarScrollEvent,
+    scroll_moved: GuiScrollbarScrollEvent,
+    scroll_end: GuiScrollbarScrollEvent,
 };
 
 pub const GuiScrollbarCallback: type = *const fn (arguments: GuiScrollbarEvent) void;
