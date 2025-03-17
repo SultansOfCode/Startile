@@ -7,33 +7,40 @@ const Consts: type = @import("Consts.zig");
 
 var font: rl.Font = undefined;
 
+var selectedColor: rl.Color = undefined;
+
 var prevScreenWidth: i32 = undefined;
 var prevScreenHeight: i32 = undefined;
 
 var tilesWindow: *fw.GuiFloatWindow = undefined;
 var clipboardWindow: *fw.GuiFloatWindow = undefined;
-var tileEditorWindow: *fw.GuiFloatWindow = undefined;
+var editorWindow: *fw.GuiFloatWindow = undefined;
 var palleteWindow: *fw.GuiFloatWindow = undefined;
-var tileSelectorWindow: *fw.GuiFloatWindow = undefined;
+var selectorWindow: *fw.GuiFloatWindow = undefined;
 
 var windows: std.ArrayList(*fw.GuiFloatWindow) = undefined;
+var windowsHandled: bool = false;
 
-var showGrids: bool = true;
+var tilesGrid: bool = true;
+var clipboardGrid: bool = true;
+var editorGrid: bool = true;
 
-var prevPixelSize: i32 = 3;
-var pixelSize: i32 = 3;
+var prevTilesPixelSize: i32 = Consts.TILES_PIXEL_SIZE_DEFAULT;
+var tilesPixelSize: i32 = Consts.TILES_PIXEL_SIZE_DEFAULT;
 
-var prevEditorPixelSizeIndex: i32 = 3;
-var editorPixelSizeIndex: i32 = 3;
-var editorPixelSize: i32 = 12;
+var prevClipboardPixelSize: i32 = Consts.CLIPBOARD_PIXEL_SIZE_DEFAULT;
+var clipboardPixelSize: i32 = Consts.CLIPBOARD_PIXEL_SIZE_DEFAULT;
 
-var prevNumEditorTiles: i32 = 1;
-var numEditorTiles: i32 = 1;
+var prevEditorPixelSize: i32 = Consts.EDITOR_PIXEL_SIZE_DEFAULT;
+var editorPixelSize: i32 = Consts.EDITOR_PIXEL_SIZE_DEFAULT;
+
+var prevEditorTilesSquareSize: i32 = Consts.EDITOR_SQUARE_SIZE_DEFAULT;
+var editorTilesSquareSize: i32 = Consts.EDITOR_SQUARE_SIZE_DEFAULT;
 
 var tileActive: i32 = 0;
 
 var pallete: [256]rl.Color = .{rl.Color.black} ** 256;
-var editorData: [8 * 8 * 16]u8 = .{0} ** (8 * 8 * 16);
+var editorData: [8 * 8 * Consts.EDITOR_SQUARE_SIZE_MAX * Consts.EDITOR_SQUARE_SIZE_MAX]u8 = .{0} ** (8 * 8 * Consts.EDITOR_SQUARE_SIZE_MAX * Consts.EDITOR_SQUARE_SIZE_MAX);
 
 pub fn isForegroundWindow(window: *fw.GuiFloatWindow) bool {
     if (windows.items.len == 0) {
@@ -145,27 +152,23 @@ pub fn tileEditorWindowEventHandler(event: fw.GuiFloatWindowEvent) void {
 pub fn handleAndDrawTilesWindow() anyerror!void {
     const mousePosition: rl.Vector2 = rl.getMousePosition();
 
-    var selectedColor: rl.Color = rl.Color.fromInt(@as(u32, @intCast(rg.guiGetStyle(rg.GuiControl.default, rg.GuiControlProperty.base_color_focused))));
-
-    selectedColor.a = 128;
-
-    if (showGrids) {
+    if (tilesGrid) {
         var mouseCell: rl.Vector2 = undefined;
 
-        _ = rg.guiGrid(tilesWindow.bodyRect, "", @as(f32, @floatFromInt(8 * pixelSize)), 1, &mouseCell);
+        _ = rg.guiGrid(tilesWindow.bodyRect, "", @as(f32, @floatFromInt(8 * tilesPixelSize)), 1, &mouseCell);
     }
 
     if (rl.checkCollisionPointRec(mousePosition, tilesWindow.bodyRect)) {
         const localX: f32 = mousePosition.x - tilesWindow.bodyRect.x;
         const localY: f32 = mousePosition.y - tilesWindow.bodyRect.y;
-        const cellX: f32 = @divFloor(localX, 8 * @as(f32, @floatFromInt(pixelSize)));
-        const cellY: f32 = @divFloor(localY, 8 * @as(f32, @floatFromInt(pixelSize)));
+        const cellX: f32 = @divFloor(localX, 8 * @as(f32, @floatFromInt(tilesPixelSize)));
+        const cellY: f32 = @divFloor(localY, 8 * @as(f32, @floatFromInt(tilesPixelSize)));
 
         rl.drawRectangle(
-            @as(i32, @intFromFloat(tilesWindow.bodyRect.x)) + @as(i32, @intFromFloat(cellX)) * 8 * pixelSize,
-            @as(i32, @intFromFloat(tilesWindow.bodyRect.y)) + @as(i32, @intFromFloat(cellY)) * 8 * pixelSize,
-            8 * pixelSize,
-            8 * pixelSize,
+            @as(i32, @intFromFloat(tilesWindow.bodyRect.x)) + @as(i32, @intFromFloat(cellX)) * 8 * tilesPixelSize,
+            @as(i32, @intFromFloat(tilesWindow.bodyRect.y)) + @as(i32, @intFromFloat(cellY)) * 8 * tilesPixelSize,
+            8 * tilesPixelSize,
+            8 * tilesPixelSize,
             selectedColor,
         );
     }
@@ -174,27 +177,23 @@ pub fn handleAndDrawTilesWindow() anyerror!void {
 pub fn handleAndDrawClipboardWindow() anyerror!void {
     const mousePosition: rl.Vector2 = rl.getMousePosition();
 
-    var selectedColor: rl.Color = rl.Color.fromInt(@as(u32, @intCast(rg.guiGetStyle(rg.GuiControl.default, rg.GuiControlProperty.base_color_focused))));
-
-    selectedColor.a = 128;
-
-    if (showGrids) {
+    if (clipboardGrid) {
         var mouseCell: rl.Vector2 = undefined;
 
-        _ = rg.guiGrid(clipboardWindow.bodyRect, "", @as(f32, @floatFromInt(8 * pixelSize)), 1, &mouseCell);
+        _ = rg.guiGrid(clipboardWindow.bodyRect, "", @as(f32, @floatFromInt(8 * clipboardPixelSize)), 1, &mouseCell);
     }
 
     if (rl.checkCollisionPointRec(mousePosition, clipboardWindow.bodyRect)) {
         const localX: f32 = mousePosition.x - clipboardWindow.bodyRect.x;
         const localY: f32 = mousePosition.y - clipboardWindow.bodyRect.y;
-        const cellX: f32 = @divFloor(localX, 8 * @as(f32, @floatFromInt(pixelSize)));
-        const cellY: f32 = @divFloor(localY, 8 * @as(f32, @floatFromInt(pixelSize)));
+        const cellX: f32 = @divFloor(localX, 8 * @as(f32, @floatFromInt(clipboardPixelSize)));
+        const cellY: f32 = @divFloor(localY, 8 * @as(f32, @floatFromInt(clipboardPixelSize)));
 
         rl.drawRectangle(
-            @as(i32, @intFromFloat(clipboardWindow.bodyRect.x)) + @as(i32, @intFromFloat(cellX)) * 8 * pixelSize,
-            @as(i32, @intFromFloat(clipboardWindow.bodyRect.y)) + @as(i32, @intFromFloat(cellY)) * 8 * pixelSize,
-            8 * pixelSize,
-            8 * pixelSize,
+            @as(i32, @intFromFloat(clipboardWindow.bodyRect.x)) + @as(i32, @intFromFloat(cellX)) * 8 * clipboardPixelSize,
+            @as(i32, @intFromFloat(clipboardWindow.bodyRect.y)) + @as(i32, @intFromFloat(cellY)) * 8 * clipboardPixelSize,
+            8 * clipboardPixelSize,
+            8 * clipboardPixelSize,
             selectedColor,
         );
     }
@@ -202,11 +201,6 @@ pub fn handleAndDrawClipboardWindow() anyerror!void {
 
 pub fn handleAndDrawTileEditorWindow() anyerror!void {
     const mousePosition: rl.Vector2 = rl.getMousePosition();
-    const numActiveTiles: i32 = numEditorTiles + 1;
-
-    var selectedColor: rl.Color = rl.Color.fromInt(@as(u32, @intCast(rg.guiGetStyle(rg.GuiControl.default, rg.GuiControlProperty.base_color_focused))));
-
-    selectedColor.a = 128;
 
     for (0..editorData.len) |i| {
         const tile: i32 = @divFloor(@as(i32, @intCast(i)), 8 * 8);
@@ -217,34 +211,34 @@ pub fn handleAndDrawTileEditorWindow() anyerror!void {
         const pixelY: i32 = @divFloor(leftover, 8);
         const color: rl.Color = pallete[editorData[i]];
 
-        if (tileX >= numActiveTiles or tileY >= numActiveTiles) {
+        if (tileX >= editorTilesSquareSize or tileY >= editorTilesSquareSize) {
             continue;
         }
 
         rl.drawRectangle(
-            @as(i32, @intFromFloat(tileEditorWindow.bodyRect.x)) + tileX * 8 * editorPixelSize + pixelX * editorPixelSize,
-            @as(i32, @intFromFloat(tileEditorWindow.bodyRect.y)) + tileY * 8 * editorPixelSize + pixelY * editorPixelSize,
+            @as(i32, @intFromFloat(editorWindow.bodyRect.x)) + tileX * 8 * editorPixelSize + pixelX * editorPixelSize,
+            @as(i32, @intFromFloat(editorWindow.bodyRect.y)) + tileY * 8 * editorPixelSize + pixelY * editorPixelSize,
             editorPixelSize,
             editorPixelSize,
             color,
         );
     }
 
-    if (showGrids) {
+    if (editorGrid) {
         var mouseCell: rl.Vector2 = undefined;
 
-        _ = rg.guiGrid(tileEditorWindow.bodyRect, "", @as(f32, @floatFromInt(editorPixelSize * 8)), 8, &mouseCell);
+        _ = rg.guiGrid(editorWindow.bodyRect, "", @as(f32, @floatFromInt(editorPixelSize * 8)), 8, &mouseCell);
     }
 
-    if (rl.checkCollisionPointRec(mousePosition, tileEditorWindow.bodyRect)) {
-        const localX: f32 = mousePosition.x - tileEditorWindow.bodyRect.x;
-        const localY: f32 = mousePosition.y - tileEditorWindow.bodyRect.y;
+    if (rl.checkCollisionPointRec(mousePosition, editorWindow.bodyRect)) {
+        const localX: f32 = mousePosition.x - editorWindow.bodyRect.x;
+        const localY: f32 = mousePosition.y - editorWindow.bodyRect.y;
         const cellX: f32 = @divFloor(localX, @as(f32, @floatFromInt(editorPixelSize)));
         const cellY: f32 = @divFloor(localY, @as(f32, @floatFromInt(editorPixelSize)));
 
         rl.drawRectangle(
-            @as(i32, @intFromFloat(tileEditorWindow.bodyRect.x)) + @as(i32, @intFromFloat(cellX)) * editorPixelSize,
-            @as(i32, @intFromFloat(tileEditorWindow.bodyRect.y)) + @as(i32, @intFromFloat(cellY)) * editorPixelSize,
+            @as(i32, @intFromFloat(editorWindow.bodyRect.x)) + @as(i32, @intFromFloat(cellX)) * editorPixelSize,
+            @as(i32, @intFromFloat(editorWindow.bodyRect.y)) + @as(i32, @intFromFloat(cellY)) * editorPixelSize,
             editorPixelSize,
             editorPixelSize,
             selectedColor,
@@ -253,7 +247,7 @@ pub fn handleAndDrawTileEditorWindow() anyerror!void {
 }
 
 pub fn handleAndDrawTileSelectorWindow() anyerror!void {
-    const numActiveTiles: i32 = numEditorTiles + 1;
+    const oldState = rg.guiGetState();
 
     var buffer: [3]u8 = .{0} ** 3;
 
@@ -262,7 +256,7 @@ pub fn handleAndDrawTileSelectorWindow() anyerror!void {
         const y: i32 = @divFloor(@as(i32, @intCast(i)), 4);
         const text: [:0]u8 = try std.fmt.bufPrintZ(&buffer, "{d}", .{i + 1});
 
-        if (x >= numActiveTiles or y >= numActiveTiles) {
+        if (x >= editorTilesSquareSize or y >= editorTilesSquareSize) {
             rg.guiSetState(@intFromEnum(rg.GuiState.state_disabled));
         } else {
             rg.guiSetState(@intFromEnum(rg.GuiState.state_normal));
@@ -276,23 +270,25 @@ pub fn handleAndDrawTileSelectorWindow() anyerror!void {
 
         const ret: i32 = rg.guiButton(
             .{
-                .x = tileSelectorWindow.bodyRect.x + @as(f32, @floatFromInt(x)) * 24,
-                .y = tileSelectorWindow.bodyRect.y + @as(f32, @floatFromInt(y)) * 24,
+                .x = selectorWindow.bodyRect.x + @as(f32, @floatFromInt(x)) * 24,
+                .y = selectorWindow.bodyRect.y + @as(f32, @floatFromInt(y)) * 24,
                 .width = 24,
                 .height = 24,
             },
             text,
         );
 
-        if (ret == 1 and isForegroundWindow(tileSelectorWindow)) {
+        if (ret == 1 and isForegroundWindow(selectorWindow)) {
             tileActive = @as(i32, @intCast(i));
         }
     }
 
-    rg.guiSetState(@intFromEnum(rg.GuiState.state_normal));
+    rg.guiSetState(oldState);
 }
 
 pub fn handleAndDrawWindows() anyerror!void {
+    windowsHandled = false;
+
     if (windows.items.len == 0) {
         return;
     }
@@ -304,6 +300,8 @@ pub fn handleAndDrawWindows() anyerror!void {
         const handled: bool = window.update();
 
         if (handled) {
+            windowsHandled = true;
+
             if (i < windows.items.len - 1) {
                 const tempWindow: *fw.GuiFloatWindow = windows.orderedRemove(i);
 
@@ -327,9 +325,9 @@ pub fn handleAndDrawWindows() anyerror!void {
             try handleAndDrawTilesWindow();
         } else if (window == clipboardWindow) {
             try handleAndDrawClipboardWindow();
-        } else if (window == tileEditorWindow) {
+        } else if (window == editorWindow) {
             try handleAndDrawTileEditorWindow();
-        } else if (window == tileSelectorWindow) {
+        } else if (window == selectorWindow) {
             try handleAndDrawTileSelectorWindow();
         }
     }
@@ -339,71 +337,99 @@ pub fn handleAndDrawToolbar() anyerror!void {
     const backgroundColor: rl.Color = rl.Color.fromInt(@as(u32, @intCast(rg.guiGetStyle(.default, rg.GuiDefaultProperty.background_color))));
     const lineColor: rl.Color = rl.Color.fromInt(@as(u32, @intCast(rg.guiGetStyle(.default, rg.GuiDefaultProperty.line_color))));
 
+    if (windowsHandled) {
+        rg.guiLock();
+    }
+
+    // Toolbar
     rl.drawRectangle(0, 0, rl.getScreenWidth(), Consts.TOOLBAR_HEIGHT, backgroundColor);
     rl.drawLine(0, Consts.TOOLBAR_HEIGHT, rl.getScreenWidth(), Consts.TOOLBAR_HEIGHT, lineColor);
 
-    rl.drawTextEx(font, "Pixel size:", .{ .x = 8, .y = 6 }, 12, 0, lineColor);
+    // Tiles window
+    _ = rg.guiGroupBox(.{ .x = 4, .y = 8, .width = 154, .height = Consts.TOOLBAR_HEIGHT - 12 }, "Tiles window");
 
-    _ = rg.guiSpinner(.{ .x = 8, .y = 18, .width = 70, .height = 24 }, "", &pixelSize, 1, 4, false);
+    rl.drawTextEx(font, "Pixel size:", .{ .x = 12, .y = 16 }, 12, 0, lineColor);
 
-    if (pixelSize != prevPixelSize) {
-        prevPixelSize = pixelSize;
+    _ = rg.guiSpinner(.{ .x = 12, .y = 28, .width = 70, .height = 24 }, "", &tilesPixelSize, Consts.TILES_PIXEL_SIZE_MIN, Consts.TILES_PIXEL_SIZE_MAX, false);
 
-        tilesWindow.setSize(Consts.TILES_PER_LINE * 8 * pixelSize, Consts.TILES_LINES * 8 * pixelSize);
-        clipboardWindow.setSize(16 * 8 * pixelSize, 8 * 8 * pixelSize);
+    if (tilesPixelSize != prevTilesPixelSize) {
+        prevTilesPixelSize = tilesPixelSize;
+
+        tilesWindow.setSize(Consts.TILES_PER_LINE * 8 * tilesPixelSize, Consts.TILES_LINES * 8 * tilesPixelSize);
 
         ensureWindowVisibility(tilesWindow);
+    }
+
+    rl.drawTextEx(font, "Show grid:", .{ .x = 90, .y = 16 }, 12, 0, lineColor);
+
+    _ = rg.guiToggle(.{ .x = 90, .y = 28, .width = 60, .height = 24 }, "#97#", &tilesGrid);
+
+    // Clipboard window
+    _ = rg.guiGroupBox(.{ .x = 162, .y = 8, .width = 154, .height = Consts.TOOLBAR_HEIGHT - 12 }, "Clipboard window");
+
+    rl.drawTextEx(font, "Pixel size:", .{ .x = 170, .y = 16 }, 12, 0, lineColor);
+
+    _ = rg.guiSpinner(.{ .x = 170, .y = 28, .width = 70, .height = 24 }, "", &clipboardPixelSize, Consts.CLIPBOARD_PIXEL_SIZE_MIN, Consts.CLIPBOARD_PIXEL_SIZE_MAX, false);
+
+    if (clipboardPixelSize != prevClipboardPixelSize) {
+        prevClipboardPixelSize = clipboardPixelSize;
+
+        clipboardWindow.setSize(16 * 8 * clipboardPixelSize, 8 * 8 * clipboardPixelSize);
+
         ensureWindowVisibility(clipboardWindow);
     }
 
-    rl.drawTextEx(font, "Tiles in editor:", .{ .x = 86, .y = 6 }, 12, 0, lineColor);
+    rl.drawTextEx(font, "Show grid:", .{ .x = 248, .y = 16 }, 12, 0, lineColor);
 
-    _ = rg.guiComboBox(
-        .{ .x = 86, .y = 18, .width = 100, .height = 24 },
-        "1x1;2x2;3x3;4x4",
-        &numEditorTiles,
-    );
+    _ = rg.guiToggle(.{ .x = 248, .y = 28, .width = 60, .height = 24 }, "#97#", &clipboardGrid);
 
-    if (numEditorTiles != prevNumEditorTiles) {
-        prevNumEditorTiles = numEditorTiles;
+    // Editor window
+    _ = rg.guiGroupBox(.{ .x = 320, .y = 8, .width = 232, .height = Consts.TOOLBAR_HEIGHT - 12 }, "Editor window");
 
-        const numActiveTiles: i32 = numEditorTiles + 1;
+    rl.drawTextEx(font, "Pixel size:", .{ .x = 328, .y = 16 }, 12, 0, lineColor);
 
-        var x: i32 = @mod(@as(i32, @intCast(tileActive)), 4);
-        var y: i32 = @divFloor(@as(i32, @intCast(tileActive)), 4);
+    _ = rg.guiSpinner(.{ .x = 328, .y = 28, .width = 70, .height = 24 }, "", &editorPixelSize, Consts.EDITOR_PIXEL_SIZE_MIN, Consts.EDITOR_PIXEL_SIZE_MAX, false);
 
-        if (x >= numActiveTiles) {
-            x = numEditorTiles;
-        }
+    if (editorPixelSize != prevEditorPixelSize) {
+        editorPixelSize = prevEditorPixelSize + (editorPixelSize - prevEditorPixelSize) * Consts.EDITOR_PIXEL_SIZE_MULTIPLIER;
 
-        if (y >= numActiveTiles) {
-            y = numEditorTiles;
-        }
+        prevEditorPixelSize = editorPixelSize;
 
-        tileActive = y * 4 + x;
+        editorWindow.setSize(editorPixelSize * 8 * editorTilesSquareSize, editorPixelSize * 8 * editorTilesSquareSize);
 
-        tileEditorWindow.setSize(editorPixelSize * 8 * (numEditorTiles + 1), editorPixelSize * 8 * (numEditorTiles + 1));
-
-        ensureWindowVisibility(tileEditorWindow);
+        ensureWindowVisibility(editorWindow);
     }
 
-    rl.drawTextEx(font, "Show grid:", .{ .x = 194, .y = 6 }, 12, 0, lineColor);
+    rl.drawTextEx(font, "Show grid:", .{ .x = 406, .y = 16 }, 12, 0, lineColor);
 
-    _ = rg.guiToggle(.{ .x = 194, .y = 18, .width = 60, .height = 24 }, "#97#", &showGrids);
+    _ = rg.guiToggle(.{ .x = 406, .y = 28, .width = 60, .height = 24 }, "#97#", &editorGrid);
 
-    rl.drawTextEx(font, "Editor pixel size:", .{ .x = 262, .y = 6 }, 12, 0, lineColor);
+    rl.drawTextEx(font, "Square size:", .{ .x = 474, .y = 16 }, 12, 0, lineColor);
 
-    _ = rg.guiSpinner(.{ .x = 262, .y = 18, .width = 110, .height = 24 }, "", &editorPixelSizeIndex, 1, 6, false);
+    _ = rg.guiSpinner(.{ .x = 474, .y = 28, .width = 70, .height = 24 }, "", &editorTilesSquareSize, Consts.EDITOR_SQUARE_SIZE_MIN, Consts.EDITOR_SQUARE_SIZE_MAX, false);
 
-    if (editorPixelSizeIndex != prevEditorPixelSizeIndex) {
-        prevEditorPixelSizeIndex = editorPixelSizeIndex;
+    if (editorTilesSquareSize != prevEditorTilesSquareSize) {
+        prevEditorTilesSquareSize = editorTilesSquareSize;
 
-        editorPixelSize = editorPixelSizeIndex * 4;
+        var x: i32 = @mod(@as(i32, @intCast(tileActive)), Consts.EDITOR_SQUARE_SIZE_MAX);
+        var y: i32 = @divFloor(@as(i32, @intCast(tileActive)), Consts.EDITOR_SQUARE_SIZE_MAX);
 
-        tileEditorWindow.setSize(editorPixelSize * 8 * (numEditorTiles + 1), editorPixelSize * 8 * (numEditorTiles + 1));
+        if (x >= editorTilesSquareSize) {
+            x = editorTilesSquareSize - 1;
+        }
 
-        ensureWindowVisibility(tileEditorWindow);
+        if (y >= editorTilesSquareSize) {
+            y = editorTilesSquareSize - 1;
+        }
+
+        tileActive = y * Consts.EDITOR_SQUARE_SIZE_MAX + x;
+
+        editorWindow.setSize(editorPixelSize * 8 * editorTilesSquareSize, editorPixelSize * 8 * editorTilesSquareSize);
+
+        ensureWindowVisibility(editorWindow);
     }
+
+    rg.guiUnlock();
 }
 
 pub fn main() anyerror!u8 {
@@ -416,7 +442,7 @@ pub fn main() anyerror!u8 {
     defer rl.closeWindow();
 
     rl.setWindowMinSize(
-        Consts.TILES_PER_LINE * 8 * 4 + fw.GuiFloatWindow.SCROLLBAR_SIZE + 2 * fw.GuiFloatWindow.BORDER_WIDTH,
+        556, //Consts.TILES_PER_LINE * 8 * Consts.TILES_PIXEL_SIZE_DEFAULT + fw.GuiFloatWindow.SCROLLBAR_SIZE + 2 * fw.GuiFloatWindow.BORDER_WIDTH,
         Consts.TOOLBAR_HEIGHT + fw.GuiFloatWindow.HEADER_HEIGHT,
     );
 
@@ -429,6 +455,13 @@ pub fn main() anyerror!u8 {
 
     rg.guiSetFont(font);
 
+    selectedColor = rl.colorAlpha(
+        rl.Color.fromInt(
+            @as(u32, @intCast(rg.guiGetStyle(rg.GuiControl.default, rg.GuiControlProperty.base_color_focused))),
+        ),
+        0.5,
+    );
+
     initializePallete();
 
     const backgroundColor: rl.Color = rl.Color.fromInt(@as(u32, @intCast(rg.guiGetStyle(.default, rg.GuiDefaultProperty.background_color))));
@@ -437,8 +470,8 @@ pub fn main() anyerror!u8 {
         gpa_allocator,
         32,
         Consts.TOOLBAR_HEIGHT + 16,
-        Consts.TILES_PER_LINE * 8 * pixelSize,
-        Consts.TILES_LINES * 8 * pixelSize,
+        Consts.TILES_PER_LINE * 8 * tilesPixelSize,
+        Consts.TILES_LINES * 8 * tilesPixelSize,
         "Tiles",
         true,
         false,
@@ -451,8 +484,8 @@ pub fn main() anyerror!u8 {
         gpa_allocator,
         @as(i32, @intFromFloat(tilesWindow.windowRect.x + tilesWindow.windowRect.width)) + 32,
         Consts.TOOLBAR_HEIGHT + 16,
-        16 * 8 * pixelSize,
-        8 * 8 * pixelSize,
+        16 * 8 * tilesPixelSize,
+        8 * 8 * tilesPixelSize,
         "Clipboard",
         false,
         false,
@@ -461,24 +494,24 @@ pub fn main() anyerror!u8 {
 
     try clipboardWindow.addEventListener(&windowEventHandler);
 
-    tileEditorWindow = try fw.GuiFloatWindow.init(
+    editorWindow = try fw.GuiFloatWindow.init(
         gpa_allocator,
         @as(i32, @intFromFloat(clipboardWindow.windowRect.x)),
         @as(i32, @intFromFloat(clipboardWindow.windowRect.y + clipboardWindow.windowRect.height)) + 32,
-        editorPixelSize * 8 * (numEditorTiles + 1),
-        editorPixelSize * 8 * (numEditorTiles + 1),
+        editorPixelSize * 8 * editorTilesSquareSize,
+        editorPixelSize * 8 * editorTilesSquareSize,
         "Editor",
         false,
         false,
     );
-    defer tileEditorWindow.deinit();
+    defer editorWindow.deinit();
 
-    try tileEditorWindow.addEventListener(&tileEditorWindowEventHandler);
+    try editorWindow.addEventListener(&tileEditorWindowEventHandler);
 
     palleteWindow = try fw.GuiFloatWindow.init(
         gpa_allocator,
-        @as(i32, @intFromFloat(tileEditorWindow.windowRect.x + tileEditorWindow.windowRect.width)) + 32,
-        @as(i32, @intFromFloat(tileEditorWindow.windowRect.y)),
+        @as(i32, @intFromFloat(editorWindow.windowRect.x + editorWindow.windowRect.width)) + 32,
+        @as(i32, @intFromFloat(editorWindow.windowRect.y)),
         150,
         150,
         "Pallete",
@@ -489,7 +522,7 @@ pub fn main() anyerror!u8 {
 
     try palleteWindow.addEventListener(&windowEventHandler);
 
-    tileSelectorWindow = try fw.GuiFloatWindow.init(
+    selectorWindow = try fw.GuiFloatWindow.init(
         gpa_allocator,
         @as(i32, @intFromFloat(palleteWindow.windowRect.x)),
         @as(i32, @intFromFloat(palleteWindow.windowRect.y + palleteWindow.windowRect.height)) + 32,
@@ -499,18 +532,18 @@ pub fn main() anyerror!u8 {
         false,
         false,
     );
-    defer tileSelectorWindow.deinit();
+    defer selectorWindow.deinit();
 
-    try tileSelectorWindow.addEventListener(&windowEventHandler);
+    try selectorWindow.addEventListener(&windowEventHandler);
 
     windows = std.ArrayList(*fw.GuiFloatWindow).init(gpa_allocator);
     defer windows.deinit();
 
     try windows.append(tilesWindow);
     try windows.append(clipboardWindow);
-    try windows.append(tileEditorWindow);
+    try windows.append(editorWindow);
     try windows.append(palleteWindow);
-    try windows.append(tileSelectorWindow);
+    try windows.append(selectorWindow);
 
     while (!rl.windowShouldClose()) {
         rl.beginDrawing();
