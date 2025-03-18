@@ -24,6 +24,21 @@ pub const EDITOR_SQUARE_SIZE_MIN: i32 = 1;
 pub const EDITOR_SQUARE_SIZE_MAX: i32 = 4;
 pub const EDITOR_SQUARE_SIZE_DEFAULT: i32 = 2;
 
-pub fn toolbarPaddingForSize(size: i32) i32 {
-    return @divFloor(TOOLBAR_HEIGHT - size, 2);
-}
+pub const SELECTOR_BUTTON_SIZE: i32 = 24;
+
+pub const PALLETE_AREA_SIZE: i32 = 192;
+
+pub const PixelMode: type = enum {
+    one_bpp,
+    two_bpp_nes,
+    two_bpp_virtual_boy,
+    two_bpp_neo_geo_pocket,
+    two_bpp_gb_gbc,
+    three_bpp_snes,
+    four_bpp_sms_gg_wsc,
+    four_bpp_genesis,
+    four_bpp_snes,
+    four_bpp_gba,
+    eight_bpp_snes,
+    eight_bpp_snes_mode7_gba,
+};

@@ -353,17 +353,19 @@ pub const GuiFloatWindow: type = struct {
         var mouseButton: ?rl.MouseButton = null;
         var handled: bool = false;
 
-        if (rl.isMouseButtonPressed(.left)) {
-            mouseButton = .left;
-        } else if (rl.isMouseButtonPressed(.middle)) {
-            mouseButton = .middle;
-        } else if (rl.isMouseButtonPressed(.right)) {
-            mouseButton = .right;
+        if (!rg.guiIsLocked()) {
+            if (rl.isMouseButtonPressed(.left)) {
+                mouseButton = .left;
+            } else if (rl.isMouseButtonPressed(.middle)) {
+                mouseButton = .middle;
+            } else if (rl.isMouseButtonPressed(.right)) {
+                mouseButton = .right;
+            }
         }
 
         const mousePressed: bool = mouseButton != null;
 
-        if (!self.dragging and self.bodyMouseButton == null and !self.scrolling) {
+        if (mousePressed and !self.dragging and self.bodyMouseButton == null and !self.scrolling) {
             if (rl.isMouseButtonPressed(.left) and rl.checkCollisionPointRec(mousePosition, self.headerRect)) {
                 self.dragging = true;
 

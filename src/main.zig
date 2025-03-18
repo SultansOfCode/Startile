@@ -7,6 +7,7 @@ const Consts: type = @import("Consts.zig");
 
 var font: rl.Font = undefined;
 
+var lineColor: rl.Color = undefined;
 var selectedColor: rl.Color = undefined;
 
 var prevScreenWidth: i32 = undefined;
@@ -40,7 +41,20 @@ var editorTilesSquareSize: i32 = Consts.EDITOR_SQUARE_SIZE_DEFAULT;
 var tileActive: i32 = 0;
 
 var pallete: [256]rl.Color = .{rl.Color.black} ** 256;
+var palleteCount: usize = 2;
+var palleteRows: i32 = 1;
+var palleteColumns: i32 = 1;
+
 var editorData: [8 * 8 * Consts.EDITOR_SQUARE_SIZE_MAX * Consts.EDITOR_SQUARE_SIZE_MAX]u8 = .{0} ** (8 * 8 * Consts.EDITOR_SQUARE_SIZE_MAX * Consts.EDITOR_SQUARE_SIZE_MAX);
+
+var prevPixelMode: i32 = 4;
+var pixelMode: i32 = 4;
+var pixelModeDropdownActive: bool = false;
+
+var editorForegroundColorIndex: u8 = 1;
+var editorBackgroundColorIndex: u8 = 0;
+
+var colorPickerColor: rl.Color = rl.Color.black;
 
 pub fn isForegroundWindow(window: *fw.GuiFloatWindow) bool {
     if (windows.items.len == 0) {
@@ -50,12 +64,61 @@ pub fn isForegroundWindow(window: *fw.GuiFloatWindow) bool {
     return windows.items[windows.items.len - 1] == window;
 }
 
+pub fn isDropdownActive() bool {
+    return pixelModeDropdownActive;
+}
+
 pub fn initializePallete() void {
     for (0..pallete.len) |i| {
         const value: u8 = @as(u8, @intCast(i));
 
         pallete[i] = rl.Color.init(value, value, value, 255);
     }
+
+    palleteCount = 256;
+    palleteRows = 16;
+    palleteColumns = 16;
+}
+
+pub fn loadPixelModePallete() void {
+    for (0..pallete.len) |i| {
+        pallete[i] = rl.Color.black;
+    }
+
+    const mode: Consts.PixelMode = @enumFromInt(pixelMode);
+
+    switch (mode) {
+        .one_bpp => {
+            pallete[0] = rl.Color.black;
+            pallete[1] = rl.Color.white;
+
+            palleteCount = 2;
+            palleteRows = 2;
+            palleteColumns = 1;
+        },
+        .two_bpp_gb_gbc => {
+            pallete[0] = rl.Color.black;
+            pallete[1] = rl.Color.gray;
+            pallete[2] = rl.Color.light_gray;
+            pallete[3] = rl.Color.white;
+
+            palleteCount = 4;
+            palleteRows = 2;
+            palleteColumns = 2;
+        },
+        .eight_bpp_snes => {
+            initializePallete();
+        },
+        else => {},
+    }
+
+    editorForegroundColorIndex = @as(u8, @intCast(palleteCount - 1));
+    editorBackgroundColorIndex = 0;
+}
+
+pub fn loadPixelMode() anyerror!void {
+    loadPixelModePallete();
+    // TODO
 }
 
 pub fn ensureWindowVisibility(window: *fw.GuiFloatWindow) void {
@@ -94,6 +157,30 @@ pub fn ensureWindowsVisibility() void {
     }
 }
 
+pub fn getWindowUnderMouse() ?*fw.GuiFloatWindow {
+    if (windows.items.len == 0) {
+        return null;
+    }
+
+    const mousePosition: rl.Vector2 = rl.getMousePosition();
+
+    var i: usize = windows.items.len - 1;
+
+    while (i >= 0) {
+        const window: *fw.GuiFloatWindow = windows.items[i];
+
+        if (!rl.checkCollisionPointRec(mousePosition, window.windowRect)) {
+            i -= 1;
+
+            continue;
+        }
+
+        return window;
+    }
+
+    return null;
+}
+
 pub fn windowEventHandler(event: fw.GuiFloatWindowEvent) void {
     switch (event) {
         .scroll_vertical_moved => |arguments| {
@@ -108,7 +195,7 @@ pub fn windowEventHandler(event: fw.GuiFloatWindowEvent) void {
     }
 }
 
-pub fn tileEditorWindowEventHandler(event: fw.GuiFloatWindowEvent) void {
+pub fn editorWindowEventHandler(event: fw.GuiFloatWindowEvent) void {
     var drawing: bool = false;
     var colorIndex: u8 = 0;
     var pixelIndex: usize = 0;
@@ -136,16 +223,63 @@ pub fn tileEditorWindowEventHandler(event: fw.GuiFloatWindowEvent) void {
 
     switch (event) {
         .left_click_start, .left_click_moved => {
-            colorIndex = 255;
+            colorIndex = editorForegroundColorIndex;
         },
         .right_click_start, .right_click_moved => {
-            colorIndex = 0;
+            colorIndex = editorBackgroundColorIndex;
         },
         else => {},
     }
 
     if (drawing) {
         editorData[pixelIndex] = colorIndex;
+    }
+}
+
+pub fn palleteWindowEventHandler(event: fw.GuiFloatWindowEvent) void {
+    const mousePosition: rl.Vector2 = rl.getMousePosition();
+    const colorsRect: rl.Rectangle = .{
+        .x = palleteWindow.bodyRect.x,
+        .y = palleteWindow.bodyRect.y,
+        .width = Consts.PALLETE_AREA_SIZE,
+        .height = Consts.PALLETE_AREA_SIZE,
+    };
+
+    var selectingColor: bool = false;
+    var selectingBackground: bool = false;
+
+    switch (event) {
+        .left_click_start, .left_click_moved => {
+            if (rl.checkCollisionPointRec(mousePosition, colorsRect)) {
+                selectingColor = true;
+                selectingBackground = false;
+            }
+        },
+        .right_click_start, .right_click_moved => {
+            if (rl.checkCollisionPointRec(mousePosition, colorsRect)) {
+                selectingColor = true;
+                selectingBackground = true;
+            }
+        },
+        else => {},
+    }
+
+    if (selectingColor) {
+        const colorWidth: i32 = @divFloor(Consts.PALLETE_AREA_SIZE, palleteColumns);
+        const colorHeight: i32 = @divFloor(Consts.PALLETE_AREA_SIZE, palleteRows);
+        const localX: i32 = @as(i32, @intFromFloat(mousePosition.x - palleteWindow.bodyRect.x));
+        const localY: i32 = @as(i32, @intFromFloat(mousePosition.y - palleteWindow.bodyRect.y));
+        const colorX: i32 = @divFloor(localX, colorWidth);
+        const colorY: i32 = @divFloor(localY, colorHeight);
+        const colorIndex: u8 = @as(u8, @intCast(colorY * palleteColumns + colorX));
+
+        if (selectingBackground) {
+            editorBackgroundColorIndex = colorIndex;
+        } else {
+            editorForegroundColorIndex = colorIndex;
+        }
+
+        colorPickerColor = pallete[colorIndex];
     }
 }
 
@@ -158,19 +292,18 @@ pub fn handleAndDrawTilesWindow() anyerror!void {
         _ = rg.guiGrid(tilesWindow.bodyRect, "", @as(f32, @floatFromInt(8 * tilesPixelSize)), 1, &mouseCell);
     }
 
-    if (rl.checkCollisionPointRec(mousePosition, tilesWindow.bodyRect)) {
+    if (rl.checkCollisionPointRec(mousePosition, tilesWindow.bodyRect) and getWindowUnderMouse() == tilesWindow) {
         const localX: f32 = mousePosition.x - tilesWindow.bodyRect.x;
         const localY: f32 = mousePosition.y - tilesWindow.bodyRect.y;
         const cellX: f32 = @divFloor(localX, 8 * @as(f32, @floatFromInt(tilesPixelSize)));
         const cellY: f32 = @divFloor(localY, 8 * @as(f32, @floatFromInt(tilesPixelSize)));
+        const rectX: i32 = @as(i32, @intFromFloat(tilesWindow.bodyRect.x)) + @as(i32, @intFromFloat(cellX)) * 8 * tilesPixelSize;
+        const rectY: i32 = @as(i32, @intFromFloat(tilesWindow.bodyRect.y)) + @as(i32, @intFromFloat(cellY)) * 8 * tilesPixelSize;
+        const rectSize: i32 = 8 * tilesPixelSize;
 
-        rl.drawRectangle(
-            @as(i32, @intFromFloat(tilesWindow.bodyRect.x)) + @as(i32, @intFromFloat(cellX)) * 8 * tilesPixelSize,
-            @as(i32, @intFromFloat(tilesWindow.bodyRect.y)) + @as(i32, @intFromFloat(cellY)) * 8 * tilesPixelSize,
-            8 * tilesPixelSize,
-            8 * tilesPixelSize,
-            selectedColor,
-        );
+        rl.drawRectangle(rectX, rectY, rectSize, rectSize, selectedColor);
+
+        rl.drawRectangleLines(rectX, rectY, rectSize, rectSize, lineColor);
     }
 }
 
@@ -183,23 +316,22 @@ pub fn handleAndDrawClipboardWindow() anyerror!void {
         _ = rg.guiGrid(clipboardWindow.bodyRect, "", @as(f32, @floatFromInt(8 * clipboardPixelSize)), 1, &mouseCell);
     }
 
-    if (rl.checkCollisionPointRec(mousePosition, clipboardWindow.bodyRect)) {
+    if (rl.checkCollisionPointRec(mousePosition, clipboardWindow.bodyRect) and getWindowUnderMouse() == clipboardWindow) {
         const localX: f32 = mousePosition.x - clipboardWindow.bodyRect.x;
         const localY: f32 = mousePosition.y - clipboardWindow.bodyRect.y;
         const cellX: f32 = @divFloor(localX, 8 * @as(f32, @floatFromInt(clipboardPixelSize)));
         const cellY: f32 = @divFloor(localY, 8 * @as(f32, @floatFromInt(clipboardPixelSize)));
+        const rectX: i32 = @as(i32, @intFromFloat(clipboardWindow.bodyRect.x)) + @as(i32, @intFromFloat(cellX)) * 8 * clipboardPixelSize;
+        const rectY: i32 = @as(i32, @intFromFloat(clipboardWindow.bodyRect.y)) + @as(i32, @intFromFloat(cellY)) * 8 * clipboardPixelSize;
+        const rectSize: i32 = 8 * clipboardPixelSize;
 
-        rl.drawRectangle(
-            @as(i32, @intFromFloat(clipboardWindow.bodyRect.x)) + @as(i32, @intFromFloat(cellX)) * 8 * clipboardPixelSize,
-            @as(i32, @intFromFloat(clipboardWindow.bodyRect.y)) + @as(i32, @intFromFloat(cellY)) * 8 * clipboardPixelSize,
-            8 * clipboardPixelSize,
-            8 * clipboardPixelSize,
-            selectedColor,
-        );
+        rl.drawRectangle(rectX, rectY, rectSize, rectSize, selectedColor);
+
+        rl.drawRectangleLines(rectX, rectY, rectSize, rectSize, lineColor);
     }
 }
 
-pub fn handleAndDrawTileEditorWindow() anyerror!void {
+pub fn handleAndDrawEditorWindow() anyerror!void {
     const mousePosition: rl.Vector2 = rl.getMousePosition();
 
     for (0..editorData.len) |i| {
@@ -230,31 +362,77 @@ pub fn handleAndDrawTileEditorWindow() anyerror!void {
         _ = rg.guiGrid(editorWindow.bodyRect, "", @as(f32, @floatFromInt(editorPixelSize * 8)), 8, &mouseCell);
     }
 
-    if (rl.checkCollisionPointRec(mousePosition, editorWindow.bodyRect)) {
+    if (rl.checkCollisionPointRec(mousePosition, editorWindow.bodyRect) and getWindowUnderMouse() == editorWindow) {
         const localX: f32 = mousePosition.x - editorWindow.bodyRect.x;
         const localY: f32 = mousePosition.y - editorWindow.bodyRect.y;
         const cellX: f32 = @divFloor(localX, @as(f32, @floatFromInt(editorPixelSize)));
         const cellY: f32 = @divFloor(localY, @as(f32, @floatFromInt(editorPixelSize)));
+        const rectX: i32 = @as(i32, @intFromFloat(editorWindow.bodyRect.x)) + @as(i32, @intFromFloat(cellX)) * editorPixelSize;
+        const rectY: i32 = @as(i32, @intFromFloat(editorWindow.bodyRect.y)) + @as(i32, @intFromFloat(cellY)) * editorPixelSize;
 
-        rl.drawRectangle(
-            @as(i32, @intFromFloat(editorWindow.bodyRect.x)) + @as(i32, @intFromFloat(cellX)) * editorPixelSize,
-            @as(i32, @intFromFloat(editorWindow.bodyRect.y)) + @as(i32, @intFromFloat(cellY)) * editorPixelSize,
-            editorPixelSize,
-            editorPixelSize,
-            selectedColor,
-        );
+        rl.drawRectangle(rectX, rectY, editorPixelSize, editorPixelSize, selectedColor);
+
+        rl.drawRectangleLines(rectX, rectY, editorPixelSize, editorPixelSize, lineColor);
+    }
+
+    if (rl.checkCollisionPointRec(mousePosition, selectorWindow.bodyRect) and getWindowUnderMouse() == selectorWindow) {
+        const oldTextSize: i32 = rg.guiGetStyle(rg.GuiControl.default, rg.GuiDefaultProperty.text_size);
+
+        defer rg.guiSetStyle(rg.GuiControl.default, rg.GuiDefaultProperty.text_size, oldTextSize);
+
+        rg.guiSetStyle(rg.GuiControl.default, rg.GuiDefaultProperty.text_size, 32);
+
+        var buffer: [3]u8 = .{0} ** 3;
+
+        const localX: f32 = mousePosition.x - selectorWindow.bodyRect.x;
+        const localY: f32 = mousePosition.y - selectorWindow.bodyRect.y;
+        const mouseOverCellX: i32 = @as(i32, @intFromFloat(@divFloor(localX, @as(f32, @floatFromInt(Consts.SELECTOR_BUTTON_SIZE)))));
+        const mouseOverCellY: i32 = @as(i32, @intFromFloat(@divFloor(localY, @as(f32, @floatFromInt(Consts.SELECTOR_BUTTON_SIZE)))));
+        const mouseOverCellIndex: i32 = mouseOverCellY * Consts.EDITOR_SQUARE_SIZE_MAX + mouseOverCellX;
+
+        for (0..Consts.EDITOR_SQUARE_SIZE_MAX * Consts.EDITOR_SQUARE_SIZE_MAX) |i| {
+            const x: i32 = @mod(@as(i32, @intCast(i)), Consts.EDITOR_SQUARE_SIZE_MAX);
+            const y: i32 = @divFloor(@as(i32, @intCast(i)), Consts.EDITOR_SQUARE_SIZE_MAX);
+
+            if (x >= editorTilesSquareSize or y >= editorTilesSquareSize) {
+                continue;
+            }
+
+            const cellRect: rl.Rectangle = .{
+                .x = editorWindow.bodyRect.x + @as(f32, @floatFromInt(x * 8 * editorPixelSize)),
+                .y = editorWindow.bodyRect.y + @as(f32, @floatFromInt(y * 8 * editorPixelSize)),
+                .width = @as(f32, @floatFromInt(8 * editorPixelSize)),
+                .height = @as(f32, @floatFromInt(8 * editorPixelSize)),
+            };
+
+            if (i == mouseOverCellIndex) {
+                rl.drawRectangleRec(cellRect, selectedColor);
+            }
+
+            if (i == tileActive) {
+                rl.drawRectangleLinesEx(
+                    cellRect,
+                    @as(f32, @floatFromInt(2 * fw.GuiFloatWindow.BORDER_WIDTH)),
+                    lineColor,
+                );
+            }
+
+            const text: [:0]u8 = try std.fmt.bufPrintZ(&buffer, "{d}", .{i});
+
+            _ = rg.guiLabel(cellRect, text);
+        }
     }
 }
 
-pub fn handleAndDrawTileSelectorWindow() anyerror!void {
+pub fn handleAndDrawSelectorWindow() anyerror!void {
     const oldState = rg.guiGetState();
 
     var buffer: [3]u8 = .{0} ** 3;
 
-    for (0..16) |i| {
-        const x: i32 = @mod(@as(i32, @intCast(i)), 4);
-        const y: i32 = @divFloor(@as(i32, @intCast(i)), 4);
-        const text: [:0]u8 = try std.fmt.bufPrintZ(&buffer, "{d}", .{i + 1});
+    for (0..Consts.EDITOR_SQUARE_SIZE_MAX * Consts.EDITOR_SQUARE_SIZE_MAX) |i| {
+        const x: i32 = @mod(@as(i32, @intCast(i)), Consts.EDITOR_SQUARE_SIZE_MAX);
+        const y: i32 = @divFloor(@as(i32, @intCast(i)), Consts.EDITOR_SQUARE_SIZE_MAX);
+        const text: [:0]u8 = try std.fmt.bufPrintZ(&buffer, "{d}", .{i});
 
         if (x >= editorTilesSquareSize or y >= editorTilesSquareSize) {
             rg.guiSetState(@intFromEnum(rg.GuiState.state_disabled));
@@ -270,10 +448,10 @@ pub fn handleAndDrawTileSelectorWindow() anyerror!void {
 
         const ret: i32 = rg.guiButton(
             .{
-                .x = selectorWindow.bodyRect.x + @as(f32, @floatFromInt(x)) * 24,
-                .y = selectorWindow.bodyRect.y + @as(f32, @floatFromInt(y)) * 24,
-                .width = 24,
-                .height = 24,
+                .x = selectorWindow.bodyRect.x + @as(f32, @floatFromInt(x * Consts.SELECTOR_BUTTON_SIZE)),
+                .y = selectorWindow.bodyRect.y + @as(f32, @floatFromInt(y * Consts.SELECTOR_BUTTON_SIZE)),
+                .width = Consts.SELECTOR_BUTTON_SIZE,
+                .height = Consts.SELECTOR_BUTTON_SIZE,
             },
             text,
         );
@@ -286,11 +464,105 @@ pub fn handleAndDrawTileSelectorWindow() anyerror!void {
     rg.guiSetState(oldState);
 }
 
+pub fn handleAndDrawPalleteWindow() anyerror!void {
+    const bodyX: i32 = @as(i32, @intFromFloat(palleteWindow.bodyRect.x));
+    const bodyY: i32 = @as(i32, @intFromFloat(palleteWindow.bodyRect.y));
+    const colorWidth: i32 = @divFloor(Consts.PALLETE_AREA_SIZE, palleteColumns);
+    const colorHeight: i32 = @divFloor(Consts.PALLETE_AREA_SIZE, palleteRows);
+
+    for (0..palleteCount) |i| {
+        const x: i32 = @mod(@as(i32, @intCast(i)), palleteColumns);
+        const y: i32 = @divFloor(@as(i32, @intCast(i)), palleteColumns);
+
+        rl.drawRectangle(
+            bodyX + x * colorWidth,
+            bodyY + y * colorHeight,
+            colorWidth,
+            colorHeight,
+            pallete[i],
+        );
+    }
+
+    const mousePosition: rl.Vector2 = rl.getMousePosition();
+    const colorsRect: rl.Rectangle = .{
+        .x = palleteWindow.bodyRect.x,
+        .y = palleteWindow.bodyRect.y,
+        .width = Consts.PALLETE_AREA_SIZE,
+        .height = Consts.PALLETE_AREA_SIZE,
+    };
+
+    if (rl.checkCollisionPointRec(mousePosition, colorsRect) and getWindowUnderMouse() == palleteWindow) {
+        const localX: i32 = @as(i32, @intFromFloat(mousePosition.x)) - bodyX;
+        const localY: i32 = @as(i32, @intFromFloat(mousePosition.y)) - bodyY;
+        const colorX: i32 = @divFloor(localX, colorWidth);
+        const colorY: i32 = @divFloor(localY, colorHeight);
+
+        rl.drawRectangle(bodyX + colorX * colorWidth, bodyY + colorY * colorHeight, colorWidth, colorHeight, selectedColor);
+
+        rl.drawRectangleLines(bodyX + colorX * colorWidth, bodyY + colorY * colorHeight, colorWidth, colorHeight, lineColor);
+    }
+
+    rl.drawRectangle(bodyX + 32, bodyY + Consts.PALLETE_AREA_SIZE + 32, 48, 48, pallete[editorBackgroundColorIndex]);
+    rl.drawRectangleLines(bodyX + 32, bodyY + Consts.PALLETE_AREA_SIZE + 32, 48, 48, lineColor);
+
+    rl.drawRectangle(bodyX + 8, bodyY + Consts.PALLETE_AREA_SIZE + 8, 48, 48, pallete[editorForegroundColorIndex]);
+    rl.drawRectangleLines(bodyX + 8, bodyY + Consts.PALLETE_AREA_SIZE + 8, 48, 48, lineColor);
+
+    const swapButtonResult: i32 = rg.guiButton(.{
+        .x = @as(f32, @floatFromInt(bodyX + 8)),
+        .y = @as(f32, @floatFromInt(bodyY + Consts.PALLETE_AREA_SIZE + 56)),
+        .width = 24,
+        .height = 24,
+    }, "#77#");
+
+    if (swapButtonResult != 0) {
+        const tempColorIndex: u8 = editorForegroundColorIndex;
+
+        editorForegroundColorIndex = editorBackgroundColorIndex;
+        editorBackgroundColorIndex = tempColorIndex;
+    }
+
+    _ = rg.guiColorPicker(.{
+        .x = @as(f32, @floatFromInt(bodyX + 88)),
+        .y = @as(f32, @floatFromInt(bodyY + Consts.PALLETE_AREA_SIZE + 8)),
+        .width = Consts.PALLETE_AREA_SIZE - 120,
+        .height = 48,
+    }, "", &colorPickerColor);
+
+    const setButtonsWidth: i32 = @divFloor(Consts.PALLETE_AREA_SIZE - 96, 2);
+
+    const setForegroundResult: i32 = rg.guiButton(.{
+        .x = @as(f32, @floatFromInt(bodyX + 88)),
+        .y = @as(f32, @floatFromInt(bodyY + Consts.PALLETE_AREA_SIZE + 56)),
+        .width = setButtonsWidth,
+        .height = 24,
+    }, "Set FG");
+
+    if (setForegroundResult != 0) {
+        pallete[editorForegroundColorIndex] = colorPickerColor;
+    }
+
+    const setBackgroundResult: i32 = rg.guiButton(.{
+        .x = @as(f32, @floatFromInt(bodyX + 88 + setButtonsWidth)),
+        .y = @as(f32, @floatFromInt(bodyY + Consts.PALLETE_AREA_SIZE + 56)),
+        .width = setButtonsWidth,
+        .height = 24,
+    }, "Set BG");
+
+    if (setBackgroundResult != 0) {
+        pallete[editorBackgroundColorIndex] = colorPickerColor;
+    }
+}
+
 pub fn handleAndDrawWindows() anyerror!void {
     windowsHandled = false;
 
     if (windows.items.len == 0) {
         return;
+    }
+
+    if (isDropdownActive()) {
+        rg.guiLock();
     }
 
     var i: usize = windows.items.len - 1;
@@ -326,16 +598,19 @@ pub fn handleAndDrawWindows() anyerror!void {
         } else if (window == clipboardWindow) {
             try handleAndDrawClipboardWindow();
         } else if (window == editorWindow) {
-            try handleAndDrawTileEditorWindow();
+            try handleAndDrawEditorWindow();
         } else if (window == selectorWindow) {
-            try handleAndDrawTileSelectorWindow();
+            try handleAndDrawSelectorWindow();
+        } else if (window == palleteWindow) {
+            try handleAndDrawPalleteWindow();
         }
     }
+
+    rg.guiUnlock();
 }
 
 pub fn handleAndDrawToolbar() anyerror!void {
     const backgroundColor: rl.Color = rl.Color.fromInt(@as(u32, @intCast(rg.guiGetStyle(.default, rg.GuiDefaultProperty.background_color))));
-    const lineColor: rl.Color = rl.Color.fromInt(@as(u32, @intCast(rg.guiGetStyle(.default, rg.GuiDefaultProperty.line_color))));
 
     if (windowsHandled) {
         rg.guiLock();
@@ -429,6 +704,38 @@ pub fn handleAndDrawToolbar() anyerror!void {
         ensureWindowVisibility(editorWindow);
     }
 
+    // Pixel mode
+    rg.guiSetStyle(
+        rg.GuiControl.default,
+        rg.GuiControlProperty.text_alignment,
+        @intFromEnum(rg.GuiTextAlignment.text_align_left),
+    );
+
+    rl.drawTextEx(font, "Pixel mode:", .{ .x = 558, .y = 16 }, 12, 0, lineColor);
+
+    const pixelModeDropdownResult: i32 = rg.guiDropdownBox(
+        .{ .x = 558, .y = 28, .width = 170, .height = 24 },
+        " 1 BPP; 2 BPP NES; 2 BPP Virtual Boy; 2 BPP Neo Geo Pocket; 2 BPP GB, GBC; 3 BPP SNES; 4 BPP SMS, GG, WSC; 4 BPP Genesis; 4 BPP SNES; 4 BPP GBA; 8 BPP SNES; 8 BPP SNES (Mode7), GBA",
+        &pixelMode,
+        pixelModeDropdownActive,
+    );
+
+    rg.guiSetStyle(
+        rg.GuiControl.default,
+        rg.GuiControlProperty.text_alignment,
+        @intFromEnum(rg.GuiTextAlignment.text_align_center),
+    );
+
+    if (pixelModeDropdownResult != 0) {
+        pixelModeDropdownActive = !pixelModeDropdownActive;
+    }
+
+    if (pixelMode != prevPixelMode) {
+        prevPixelMode = pixelMode;
+
+        try loadPixelMode();
+    }
+
     rg.guiUnlock();
 }
 
@@ -442,7 +749,7 @@ pub fn main() anyerror!u8 {
     defer rl.closeWindow();
 
     rl.setWindowMinSize(
-        556, //Consts.TILES_PER_LINE * 8 * Consts.TILES_PIXEL_SIZE_DEFAULT + fw.GuiFloatWindow.SCROLLBAR_SIZE + 2 * fw.GuiFloatWindow.BORDER_WIDTH,
+        556,
         Consts.TOOLBAR_HEIGHT + fw.GuiFloatWindow.HEADER_HEIGHT,
     );
 
@@ -455,6 +762,14 @@ pub fn main() anyerror!u8 {
 
     rg.guiSetFont(font);
 
+    rg.guiSetStyle(
+        rg.GuiControl.default,
+        rg.GuiControlProperty.text_alignment,
+        @intFromEnum(rg.GuiTextAlignment.text_align_center),
+    );
+
+    lineColor = rl.Color.fromInt(@as(u32, @intCast(rg.guiGetStyle(.default, rg.GuiDefaultProperty.line_color))));
+
     selectedColor = rl.colorAlpha(
         rl.Color.fromInt(
             @as(u32, @intCast(rg.guiGetStyle(rg.GuiControl.default, rg.GuiControlProperty.base_color_focused))),
@@ -463,6 +778,7 @@ pub fn main() anyerror!u8 {
     );
 
     initializePallete();
+    try loadPixelMode();
 
     const backgroundColor: rl.Color = rl.Color.fromInt(@as(u32, @intCast(rg.guiGetStyle(.default, rg.GuiDefaultProperty.background_color))));
 
@@ -506,28 +822,28 @@ pub fn main() anyerror!u8 {
     );
     defer editorWindow.deinit();
 
-    try editorWindow.addEventListener(&tileEditorWindowEventHandler);
+    try editorWindow.addEventListener(&editorWindowEventHandler);
 
     palleteWindow = try fw.GuiFloatWindow.init(
         gpa_allocator,
         @as(i32, @intFromFloat(editorWindow.windowRect.x + editorWindow.windowRect.width)) + 32,
         @as(i32, @intFromFloat(editorWindow.windowRect.y)),
-        150,
-        150,
+        Consts.PALLETE_AREA_SIZE,
+        Consts.PALLETE_AREA_SIZE + 88,
         "Pallete",
         false,
         false,
     );
     defer palleteWindow.deinit();
 
-    try palleteWindow.addEventListener(&windowEventHandler);
+    try palleteWindow.addEventListener(&palleteWindowEventHandler);
 
     selectorWindow = try fw.GuiFloatWindow.init(
         gpa_allocator,
         @as(i32, @intFromFloat(palleteWindow.windowRect.x)),
         @as(i32, @intFromFloat(palleteWindow.windowRect.y + palleteWindow.windowRect.height)) + 32,
-        24 * 4,
-        24 * 4,
+        Consts.SELECTOR_BUTTON_SIZE * 4,
+        Consts.SELECTOR_BUTTON_SIZE * 4,
         "Active tile",
         false,
         false,
