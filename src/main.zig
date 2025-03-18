@@ -5,8 +5,28 @@ const fw: type = @import("GuiFloatWindow.zig");
 const sb: type = @import("GuiScrollbar.zig");
 const Consts: type = @import("Consts.zig");
 
+const styles: [12][*:0]const u8 = .{
+    "styles/style_amber.rgs",
+    "styles/style_ashes.rgs",
+    "styles/style_bluish.rgs",
+    "styles/style_candy.rgs",
+    "styles/style_cherry.rgs",
+    "styles/style_cyber.rgs",
+    "styles/style_dark.rgs",
+    "styles/style_enefete.rgs",
+    "styles/style_jungle.rgs",
+    "styles/style_lavanda.rgs",
+    "styles/style_sunny.rgs",
+    "styles/style_terminal.rgs",
+};
+
 var font: rl.Font = undefined;
 
+var prevStyleIndex: i32 = 8;
+var styleIndex: i32 = 8;
+var styleDropdownActive: bool = false;
+
+var backgroundColor: rl.Color = undefined;
 var lineColor: rl.Color = undefined;
 var selectedColor: rl.Color = undefined;
 
@@ -38,26 +58,75 @@ var editorPixelSize: i32 = Consts.EDITOR_PIXEL_SIZE_DEFAULT;
 var prevEditorTilesSquareSize: i32 = Consts.EDITOR_SQUARE_SIZE_DEFAULT;
 var editorTilesSquareSize: i32 = Consts.EDITOR_SQUARE_SIZE_DEFAULT;
 
+var prevTilesOffset: i32 = 0;
+var tilesOffset: i32 = 0;
+
 var activeTile: i32 = 0;
+
+var bitsPerPixel: u8 = 1;
+var bytesPerTile: u8 = 8;
 
 var pallete: [256]rl.Color = .{rl.Color.black} ** 256;
 var palleteCount: usize = 2;
-var palleteRows: i32 = 1;
+var palleteRows: i32 = 2;
 var palleteColumns: i32 = 1;
 var palleteEditing: bool = false;
+
+var romData: []u8 = undefined;
+var romAddress: i32 = undefined;
+var romOffset: i32 = undefined;
 
 var tilesData: [8 * 8 * Consts.TILES_TILES_PER_LINE * Consts.TILES_LINES]u8 = .{0} ** (8 * 8 * Consts.TILES_TILES_PER_LINE * Consts.TILES_LINES);
 var clipboardData: [8 * 8 * Consts.CLIPBOARD_TILES_PER_LINE * Consts.CLIPBOARD_LINES]u8 = .{0} ** (8 * 8 * Consts.CLIPBOARD_TILES_PER_LINE * Consts.CLIPBOARD_LINES);
 var editorData: [8 * 8 * Consts.EDITOR_SQUARE_SIZE_MAX * Consts.EDITOR_SQUARE_SIZE_MAX]u8 = .{0} ** (8 * 8 * Consts.EDITOR_SQUARE_SIZE_MAX * Consts.EDITOR_SQUARE_SIZE_MAX);
 
-var prevPixelMode: i32 = 4;
-var pixelMode: i32 = 4;
+var prevPixelMode: i32 = 0;
+var pixelMode: i32 = 0;
 var pixelModeDropdownActive: bool = false;
 
 var editorForegroundColorIndex: u8 = 1;
 var editorBackgroundColorIndex: u8 = 0;
 
 var colorPickerColor: rl.Color = rl.Color.black;
+
+pub fn loadStyle() void {
+    rg.guiLoadStyle(styles[@as(usize, @intCast(styleIndex))]);
+
+    rg.guiSetFont(font);
+
+    const size: i32 = rg.guiGetStyle(rg.GuiControl.default, rg.GuiDefaultProperty.text_line_spacing);
+
+    std.log.info("FONT SIZE: {d}", .{size});
+
+    rg.guiSetStyle(
+        rg.GuiControl.default,
+        rg.GuiDefaultProperty.text_size,
+        12,
+    );
+
+    rg.guiSetStyle(
+        rg.GuiControl.default,
+        rg.GuiDefaultProperty.text_line_spacing,
+        18,
+    );
+
+    rg.guiSetStyle(
+        rg.GuiControl.default,
+        rg.GuiControlProperty.text_alignment,
+        @intFromEnum(rg.GuiTextAlignment.text_align_center),
+    );
+
+    backgroundColor = rl.Color.fromInt(@as(u32, @bitCast(rg.guiGetStyle(.default, rg.GuiDefaultProperty.background_color))));
+
+    lineColor = rl.Color.fromInt(@as(u32, @bitCast(rg.guiGetStyle(.default, rg.GuiDefaultProperty.line_color))));
+
+    selectedColor = rl.colorAlpha(
+        rl.Color.fromInt(
+            @as(u32, @bitCast(rg.guiGetStyle(rg.GuiControl.default, rg.GuiControlProperty.base_color_focused))),
+        ),
+        0.5,
+    );
+}
 
 pub fn isForegroundWindow(window: *fw.GuiFloatWindow) bool {
     if (windows.items.len == 0) {
@@ -68,79 +137,7 @@ pub fn isForegroundWindow(window: *fw.GuiFloatWindow) bool {
 }
 
 pub fn isDropdownActive() bool {
-    return pixelModeDropdownActive;
-}
-
-pub fn initializePallete() void {
-    for (0..pallete.len) |i| {
-        const value: u8 = @as(u8, @intCast(i));
-
-        pallete[i] = rl.Color.init(value, value, value, 255);
-    }
-
-    palleteCount = 256;
-    palleteRows = 16;
-    palleteColumns = 16;
-
-    editorForegroundColorIndex = 255;
-    editorBackgroundColorIndex = 0;
-}
-
-pub fn loadPixelModePallete() void {
-    for (0..pallete.len) |i| {
-        pallete[i] = rl.Color.black;
-    }
-
-    const mode: Consts.PixelMode = @enumFromInt(pixelMode);
-
-    switch (mode) {
-        .one_bpp => {
-            pallete[0] = rl.Color.black;
-            pallete[1] = rl.Color.white;
-
-            palleteCount = 2;
-            palleteRows = 2;
-            palleteColumns = 1;
-        },
-        .two_bpp_gb_gbc => {
-            pallete[0] = rl.Color.black;
-            pallete[1] = rl.Color.gray;
-            pallete[2] = rl.Color.light_gray;
-            pallete[3] = rl.Color.white;
-
-            palleteCount = 4;
-            palleteRows = 2;
-            palleteColumns = 2;
-        },
-        .eight_bpp_snes => {
-            initializePallete();
-        },
-        else => {},
-    }
-
-    editorForegroundColorIndex = @as(u8, @intCast(palleteCount - 1));
-    editorBackgroundColorIndex = 0;
-
-    for (0..clipboardData.len) |i| {
-        if (clipboardData[i] < palleteCount) {
-            continue;
-        }
-
-        clipboardData[i] = @as(u8, @intCast(palleteCount - 1));
-    }
-
-    for (0..editorData.len) |i| {
-        if (editorData[i] < palleteCount) {
-            continue;
-        }
-
-        editorData[i] = @as(u8, @intCast(palleteCount - 1));
-    }
-}
-
-pub fn loadPixelMode() anyerror!void {
-    loadPixelModePallete();
-    // TODO
+    return styleDropdownActive or pixelModeDropdownActive;
 }
 
 pub fn ensureWindowVisibility(window: *fw.GuiFloatWindow) void {
@@ -203,18 +200,156 @@ pub fn getWindowUnderMouse() ?*fw.GuiFloatWindow {
     return null;
 }
 
-pub fn windowEventHandler(event: fw.GuiFloatWindowEvent) void {
-    switch (event) {
-        .scroll_vertical_moved => |arguments| {
-            std.log.info("JANELA {s} ROLOU VERTICALMENTE PARA {d}", .{ arguments.window.title, arguments.value });
-        },
-        .scroll_horizontal_moved => |arguments| {
-            std.log.info("JANELA {s} ROLOU HORIZONTALMENTE PARA {d}", .{ arguments.window.title, arguments.value });
-        },
-        else => {
-            std.log.info("EVENTO {any} NAO HANDLED", .{event});
-        },
+pub fn resetTilesData() void {
+    for (0..tilesData.len) |i| {
+        tilesData[i] = 0;
     }
+}
+
+pub fn resetClipboardData() void {
+    for (0..clipboardData.len) |i| {
+        clipboardData[i] = 0;
+    }
+}
+
+pub fn resetEditorData() void {
+    for (0..editorData.len) |i| {
+        editorData[i] = 0;
+    }
+}
+
+pub fn resetPallete() void {
+    for (0..pallete.len) |i| {
+        pallete[i] = rl.Color.black;
+    }
+}
+
+pub fn resetAll() void {
+    resetTilesData();
+    resetClipboardData();
+    resetEditorData();
+    resetPallete();
+}
+
+pub fn initializePallete() void {
+    for (0..pallete.len) |i| {
+        const value: u8 = @as(u8, @intCast(i));
+
+        pallete[i] = rl.Color.init(value, value, value, 255);
+    }
+
+    palleteCount = 256;
+    palleteRows = 16;
+    palleteColumns = 16;
+
+    editorForegroundColorIndex = 255;
+    editorBackgroundColorIndex = 0;
+}
+
+pub fn loadPixelModePallete() void {
+    resetPallete();
+
+    const mode: Consts.PixelMode = @enumFromInt(pixelMode);
+
+    switch (mode) {
+        .one_bpp => {
+            pallete[0] = rl.Color.black;
+            pallete[1] = rl.Color.white;
+
+            palleteCount = 2;
+            palleteRows = 2;
+            palleteColumns = 1;
+
+            bytesPerTile = 8;
+        },
+        .two_bpp_gb_gbc => {
+            pallete[0] = rl.Color.black;
+            pallete[1] = rl.Color.gray;
+            pallete[2] = rl.Color.light_gray;
+            pallete[3] = rl.Color.white;
+
+            palleteCount = 4;
+            palleteRows = 2;
+            palleteColumns = 2;
+
+            bitsPerPixel = 2;
+        },
+        .eight_bpp_snes => {
+            initializePallete();
+        },
+        else => {},
+    }
+
+    bytesPerTile = 8 * bitsPerPixel;
+
+    editorForegroundColorIndex = @as(u8, @intCast(palleteCount - 1));
+    editorBackgroundColorIndex = 0;
+
+    for (0..clipboardData.len) |i| {
+        if (clipboardData[i] < palleteCount) {
+            continue;
+        }
+
+        clipboardData[i] = @as(u8, @intCast(palleteCount - 1));
+    }
+
+    for (0..editorData.len) |i| {
+        if (editorData[i] < palleteCount) {
+            continue;
+        }
+
+        editorData[i] = @as(u8, @intCast(palleteCount - 1));
+    }
+}
+
+pub fn processROMData() void {
+    // TODO
+}
+
+pub fn loadPixelMode() void {
+    loadPixelModePallete();
+    processROMData();
+}
+
+pub fn setROMAddress(address: i32) void {
+    romAddress = address;
+
+    processROMData();
+}
+
+pub fn setROMOffset(offset: i32) void {
+    prevTilesOffset = offset;
+    tilesOffset = offset;
+
+    romOffset = offset;
+
+    processROMData();
+}
+
+pub fn loadROM(fileName: [*c]u8) anyerror!void {
+    if (romData.len > 0) {
+        rl.unloadFileData(romData);
+    }
+
+    romData = try rl.loadFileData(fileName);
+
+    romAddress = 0;
+    romOffset = 0;
+
+    prevTilesOffset = 0;
+    tilesOffset = 0;
+
+    resetAll();
+
+    if (rl.isFileExtension(fileName, ".gb") or rl.isFileExtension(fileName, ".gbc")) {
+        pixelMode = @intFromEnum(Consts.PixelMode.two_bpp_gb_gbc);
+    } else {
+        pixelMode = @intFromEnum(Consts.PixelMode.one_bpp);
+    }
+
+    prevPixelMode = pixelMode;
+
+    loadPixelMode();
 }
 
 pub fn tilesWindowEventHandler(event: fw.GuiFloatWindowEvent) void {
@@ -524,7 +659,7 @@ pub fn handleAndDrawEditorWindow() anyerror!void {
 
         defer rg.guiSetStyle(rg.GuiControl.default, rg.GuiDefaultProperty.text_size, oldTextSize);
 
-        rg.guiSetStyle(rg.GuiControl.default, rg.GuiDefaultProperty.text_size, 32);
+        rg.guiSetStyle(rg.GuiControl.default, rg.GuiDefaultProperty.text_size, @as(i32, @intFromFloat(@as(f32, @floatFromInt(editorPixelSize)) * 2.666667)));
 
         var buffer: [3]u8 = .{0} ** 3;
 
@@ -797,8 +932,6 @@ pub fn handleAndDrawWindows() anyerror!void {
 }
 
 pub fn handleAndDrawToolbar() anyerror!void {
-    const backgroundColor: rl.Color = rl.Color.fromInt(@as(u32, @intCast(rg.guiGetStyle(.default, rg.GuiDefaultProperty.background_color))));
-
     if (windowsHandled) {
         rg.guiLock();
     }
@@ -891,17 +1024,19 @@ pub fn handleAndDrawToolbar() anyerror!void {
         ensureWindowVisibility(editorWindow);
     }
 
-    // Pixel mode
+    // File
+    _ = rg.guiGroupBox(.{ .x = 556, .y = 8, .width = 264, .height = Consts.TOOLBAR_HEIGHT - 12 }, "File");
+
+    rl.drawTextEx(font, "Pixel mode:", .{ .x = 564, .y = 16 }, 12, 0, lineColor);
+
     rg.guiSetStyle(
         rg.GuiControl.default,
         rg.GuiControlProperty.text_alignment,
         @intFromEnum(rg.GuiTextAlignment.text_align_left),
     );
 
-    rl.drawTextEx(font, "Pixel mode:", .{ .x = 558, .y = 16 }, 12, 0, lineColor);
-
     const pixelModeDropdownResult: i32 = rg.guiDropdownBox(
-        .{ .x = 558, .y = 28, .width = 170, .height = 24 },
+        .{ .x = 564, .y = 28, .width = 170, .height = 24 },
         " 1 BPP; 2 BPP NES; 2 BPP Virtual Boy; 2 BPP Neo Geo Pocket; 2 BPP GB, GBC; 3 BPP SNES; 4 BPP SMS, GG, WSC; 4 BPP Genesis; 4 BPP SNES; 4 BPP GBA; 8 BPP SNES; 8 BPP SNES (Mode7), GBA",
         &pixelMode,
         pixelModeDropdownActive,
@@ -920,7 +1055,51 @@ pub fn handleAndDrawToolbar() anyerror!void {
     if (pixelMode != prevPixelMode) {
         prevPixelMode = pixelMode;
 
-        try loadPixelMode();
+        loadPixelMode();
+    }
+
+    rl.drawTextEx(font, "Offset:", .{ .x = 742, .y = 16 }, 12, 0, lineColor);
+
+    _ = rg.guiSpinner(.{ .x = 742, .y = 28, .width = 70, .height = 24 }, "", &tilesOffset, 0, 16, false);
+
+    if (tilesOffset != prevTilesOffset) {
+        prevTilesOffset = tilesOffset;
+
+        processROMData();
+    }
+
+    // Application
+    _ = rg.guiGroupBox(.{ .x = 824, .y = 8, .width = 116, .height = Consts.TOOLBAR_HEIGHT - 12 }, "Application");
+
+    rl.drawTextEx(font, "Style:", .{ .x = 832, .y = 16 }, 12, 0, lineColor);
+
+    rg.guiSetStyle(
+        rg.GuiControl.default,
+        rg.GuiControlProperty.text_alignment,
+        @intFromEnum(rg.GuiTextAlignment.text_align_left),
+    );
+
+    const styleDropdownResult: i32 = rg.guiDropdownBox(
+        .{ .x = 832, .y = 28, .width = 100, .height = 24 },
+        " Amber; Ashes; Bluish; Candy; Cherry; Cyber; Dark; Enefete; Jungle; Lavanda; Sunny; Terminal",
+        &styleIndex,
+        styleDropdownActive,
+    );
+
+    rg.guiSetStyle(
+        rg.GuiControl.default,
+        rg.GuiControlProperty.text_alignment,
+        @intFromEnum(rg.GuiTextAlignment.text_align_center),
+    );
+
+    if (styleDropdownResult != 0) {
+        styleDropdownActive = !styleDropdownActive;
+    }
+
+    if (styleIndex != prevStyleIndex) {
+        prevStyleIndex = styleIndex;
+
+        loadStyle();
     }
 
     rg.guiUnlock();
@@ -932,47 +1111,31 @@ pub fn main() anyerror!u8 {
 
     rl.setConfigFlags(.{ .window_resizable = true });
 
-    rl.initWindow(1280, 720, "Startile");
+    rl.initWindow(
+        944,
+        Consts.TOOLBAR_HEIGHT + 32 + fw.GuiFloatWindow.HEADER_HEIGHT + 2 * fw.GuiFloatWindow.BORDER_WIDTH + Consts.TILES_LINES * 8 * tilesPixelSize + 32,
+        "Startile",
+    );
     defer rl.closeWindow();
 
     rl.setWindowMinSize(
-        732,
+        944,
         Consts.TOOLBAR_HEIGHT + fw.GuiFloatWindow.HEADER_HEIGHT,
     );
 
     rl.setTargetFPS(60);
 
-    rg.guiLoadStyle("resources/style_jungle.rgs");
-
-    font = try rl.loadFontFromMemory(".ttf", Consts.FONT_DATA, 20, null);
+    font = try rl.loadFontFromMemory(".ttf", Consts.FONT_DATA, 96, null);
     defer rl.unloadFont(font);
 
-    rg.guiSetFont(font);
-
-    rg.guiSetStyle(
-        rg.GuiControl.default,
-        rg.GuiControlProperty.text_alignment,
-        @intFromEnum(rg.GuiTextAlignment.text_align_center),
-    );
-
-    lineColor = rl.Color.fromInt(@as(u32, @intCast(rg.guiGetStyle(.default, rg.GuiDefaultProperty.line_color))));
-
-    selectedColor = rl.colorAlpha(
-        rl.Color.fromInt(
-            @as(u32, @intCast(rg.guiGetStyle(rg.GuiControl.default, rg.GuiControlProperty.base_color_focused))),
-        ),
-        0.5,
-    );
-
-    initializePallete();
-    try loadPixelMode();
-
-    const backgroundColor: rl.Color = rl.Color.fromInt(@as(u32, @intCast(rg.guiGetStyle(.default, rg.GuiDefaultProperty.background_color))));
+    loadStyle();
+    resetAll();
+    loadPixelMode();
 
     tilesWindow = try fw.GuiFloatWindow.init(
         gpa_allocator,
         32,
-        Consts.TOOLBAR_HEIGHT + 16,
+        Consts.TOOLBAR_HEIGHT + 32,
         Consts.TILES_TILES_PER_LINE * 8 * tilesPixelSize,
         Consts.TILES_LINES * 8 * tilesPixelSize,
         "Tiles",
@@ -986,7 +1149,7 @@ pub fn main() anyerror!u8 {
     clipboardWindow = try fw.GuiFloatWindow.init(
         gpa_allocator,
         @as(i32, @intFromFloat(tilesWindow.windowRect.x + tilesWindow.windowRect.width)) + 32,
-        Consts.TOOLBAR_HEIGHT + 16,
+        @as(i32, @intFromFloat(tilesWindow.windowRect.y)),
         Consts.CLIPBOARD_TILES_PER_LINE * 8 * tilesPixelSize,
         Consts.CLIPBOARD_LINES * 8 * tilesPixelSize,
         "Clipboard",
@@ -1037,8 +1200,6 @@ pub fn main() anyerror!u8 {
     );
     defer selectorWindow.deinit();
 
-    try selectorWindow.addEventListener(&windowEventHandler);
-
     windows = std.ArrayList(*fw.GuiFloatWindow).init(gpa_allocator);
     defer windows.deinit();
 
@@ -1053,6 +1214,19 @@ pub fn main() anyerror!u8 {
         defer rl.endDrawing();
 
         rl.clearBackground(backgroundColor);
+
+        handleDroppedFiles: {
+            if (rl.isFileDropped()) {
+                const filePaths: rl.FilePathList = rl.loadDroppedFiles();
+                defer rl.unloadDroppedFiles(filePaths);
+
+                if (filePaths.count == 0) {
+                    break :handleDroppedFiles;
+                }
+
+                try loadROM(filePaths.paths[0][0..]);
+            }
+        }
 
         try handleAndDrawWindows();
 

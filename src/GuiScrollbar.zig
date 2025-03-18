@@ -143,8 +143,8 @@ pub const GuiScrollbar: type = struct {
     }
 
     pub fn draw(self: *GuiScrollbar) void {
-        const background = rl.Color.fromInt(@as(u32, @intCast(rg.guiGetStyle(rg.GuiControl.default, rg.GuiDefaultProperty.background_color))));
-        var foreground = rl.Color.fromInt(@as(u32, @intCast(rg.guiGetStyle(rg.GuiControl.default, rg.GuiControlProperty.base_color_normal))));
+        const background = rl.Color.fromInt(@as(u32, @bitCast(rg.guiGetStyle(rg.GuiControl.default, rg.GuiDefaultProperty.background_color))));
+        var foreground = rl.Color.fromInt(@as(u32, @bitCast(rg.guiGetStyle(rg.GuiControl.default, rg.GuiControlProperty.base_color_normal))));
 
         rl.drawRectangleRec(self.rect, background);
 
@@ -166,9 +166,9 @@ pub const GuiScrollbar: type = struct {
         }
 
         if (self.scrolling) {
-            foreground = rl.Color.fromInt(@as(u32, @intCast(rg.guiGetStyle(rg.GuiControl.default, rg.GuiControlProperty.base_color_pressed))));
+            foreground = rl.Color.fromInt(@as(u32, @bitCast(rg.guiGetStyle(rg.GuiControl.default, rg.GuiControlProperty.base_color_pressed))));
         } else if (rl.checkCollisionPointRec(rl.getMousePosition(), self.rect)) {
-            foreground = rl.Color.fromInt(@as(u32, @intCast(rg.guiGetStyle(rg.GuiControl.default, rg.GuiControlProperty.base_color_focused))));
+            foreground = rl.Color.fromInt(@as(u32, @bitCast(rg.guiGetStyle(rg.GuiControl.default, rg.GuiControlProperty.base_color_focused))));
         }
 
         rl.drawRectangle(x, y, width, height, foreground);

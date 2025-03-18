@@ -630,7 +630,7 @@ pub const GuiFloatWindow: type = struct {
     }
 
     pub fn draw(self: *GuiFloatWindow) void {
-        const backgroundColor = rl.Color.fromInt(@as(u32, @intCast(rg.guiGetStyle(rg.GuiControl.default, rg.GuiDefaultProperty.background_color))));
+        const backgroundColor = rl.Color.fromInt(@as(u32, @bitCast(rg.guiGetStyle(rg.GuiControl.default, rg.GuiDefaultProperty.background_color))));
 
         _ = rg.guiPanel(self.windowRect, self.title);
 
