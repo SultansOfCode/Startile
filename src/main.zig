@@ -94,10 +94,6 @@ pub fn loadStyle() void {
 
     rg.guiSetFont(font);
 
-    const size: i32 = rg.guiGetStyle(rg.GuiControl.default, rg.GuiDefaultProperty.text_line_spacing);
-
-    std.log.info("FONT SIZE: {d}", .{size});
-
     rg.guiSetStyle(
         rg.GuiControl.default,
         rg.GuiDefaultProperty.text_size,
