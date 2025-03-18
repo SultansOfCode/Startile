@@ -31,6 +31,8 @@ pub const SELECTOR_BUTTON_SIZE: i32 = 24;
 
 pub const PALLETE_AREA_SIZE: i32 = 192;
 
+pub const WHEEL_SCROLL_LINES: i32 = 3;
+
 pub const PixelMode: type = enum {
     one_bpp,
     two_bpp_nes,

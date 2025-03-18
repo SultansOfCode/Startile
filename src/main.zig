@@ -72,6 +72,7 @@ var palleteRows: i32 = 2;
 var palleteColumns: i32 = 1;
 var palleteEditing: bool = false;
 
+var romFileName: ?[*c]u8 = null;
 var romData: []u8 = undefined;
 var romAddress: i32 = undefined;
 var romOffset: i32 = undefined;
@@ -79,6 +80,10 @@ var romOffset: i32 = undefined;
 var tilesData: [8 * 8 * Consts.TILES_TILES_PER_LINE * Consts.TILES_LINES]u8 = .{0} ** (8 * 8 * Consts.TILES_TILES_PER_LINE * Consts.TILES_LINES);
 var clipboardData: [8 * 8 * Consts.CLIPBOARD_TILES_PER_LINE * Consts.CLIPBOARD_LINES]u8 = .{0} ** (8 * 8 * Consts.CLIPBOARD_TILES_PER_LINE * Consts.CLIPBOARD_LINES);
 var editorData: [8 * 8 * Consts.EDITOR_SQUARE_SIZE_MAX * Consts.EDITOR_SQUARE_SIZE_MAX]u8 = .{0} ** (8 * 8 * Consts.EDITOR_SQUARE_SIZE_MAX * Consts.EDITOR_SQUARE_SIZE_MAX);
+
+var tilesLines: i32 = 0;
+var tilesLastLine: i32 = 0;
+var tilesCurrentLine: i32 = 0;
 
 var prevPixelMode: i32 = 0;
 var pixelMode: i32 = 0;
@@ -88,6 +93,8 @@ var editorForegroundColorIndex: u8 = 1;
 var editorBackgroundColorIndex: u8 = 0;
 
 var colorPickerColor: rl.Color = rl.Color.black;
+
+var mousePosition: rl.Vector2 = rl.Vector2.init(0, 0);
 
 pub fn loadStyle() void {
     rg.guiLoadStyle(styles[@as(usize, @intCast(styleIndex))]);
@@ -177,8 +184,6 @@ pub fn getWindowUnderMouse() ?*fw.GuiFloatWindow {
         return null;
     }
 
-    const mousePosition: rl.Vector2 = rl.getMousePosition();
-
     var i: usize = windows.items.len - 1;
 
     while (i >= 0) {
@@ -242,7 +247,7 @@ pub fn initializePallete() void {
     editorBackgroundColorIndex = 0;
 }
 
-pub fn loadPixelModePallete() void {
+pub fn loadPixelModePallete() anyerror!void {
     resetPallete();
 
     const mode: Consts.PixelMode = @enumFromInt(pixelMode);
@@ -256,7 +261,7 @@ pub fn loadPixelModePallete() void {
             palleteRows = 2;
             palleteColumns = 1;
 
-            bytesPerTile = 8;
+            bitsPerPixel = 1;
         },
         .two_bpp_gb_gbc => {
             pallete[0] = rl.Color.black;
@@ -277,6 +282,9 @@ pub fn loadPixelModePallete() void {
     }
 
     bytesPerTile = 8 * bitsPerPixel;
+
+    tilesLines = try std.math.divCeil(i32, @as(i32, @intCast(romData.len)), @as(i32, @intCast(bytesPerTile * Consts.TILES_TILES_PER_LINE)));
+    tilesLastLine = @max(0, tilesLines - Consts.TILES_LINES);
 
     editorForegroundColorIndex = @as(u8, @intCast(palleteCount - 1));
     editorBackgroundColorIndex = 0;
@@ -299,11 +307,51 @@ pub fn loadPixelModePallete() void {
 }
 
 pub fn processROMData() void {
-    // TODO
+    if (romData.len == 0) {
+        return;
+    }
+
+    for (0..Consts.TILES_TILES_PER_LINE * Consts.TILES_LINES) |tileIndex| {
+        const dataIndex: i32 = tilesCurrentLine * Consts.TILES_TILES_PER_LINE * bytesPerTile + @as(i32, @intCast(tileIndex)) * bytesPerTile + romOffset;
+
+        for (0..8) |y| {
+            for (0..8) |x| {
+                var colorIndex: u8 = 0;
+
+                processColor: {
+                    switch (@as(Consts.PixelMode, @enumFromInt(pixelMode))) {
+                        .two_bpp_gb_gbc => {
+                            const byteIndex: usize = @as(usize, @intCast(dataIndex)) + y * @as(usize, @intCast(bitsPerPixel));
+
+                            if (byteIndex >= romData.len - 1) {
+                                break :processColor;
+                            }
+
+                            const byteOne: u8 = romData[byteIndex];
+                            const byteTwo: u8 = romData[byteIndex + 1];
+                            const bit: u8 = 7 - @as(u8, @intCast(x));
+                            const bitValue: u8 = @as(u8, @intCast(1)) << @as(u3, @intCast(bit));
+
+                            if ((byteOne & bitValue) != 0) {
+                                colorIndex += 1;
+                            }
+
+                            if ((byteTwo & bitValue) != 0) {
+                                colorIndex += 2;
+                            }
+                        },
+                        else => {},
+                    }
+                }
+
+                tilesData[tileIndex * 8 * 8 + y * 8 + x] = colorIndex;
+            }
+        }
+    }
 }
 
-pub fn loadPixelMode() void {
-    loadPixelModePallete();
+pub fn loadPixelMode() anyerror!void {
+    try loadPixelModePallete();
     processROMData();
 }
 
@@ -314,10 +362,34 @@ pub fn setROMAddress(address: i32) void {
 }
 
 pub fn setROMOffset(offset: i32) void {
-    prevTilesOffset = offset;
-    tilesOffset = offset;
+    const clampedOffset: i32 = std.math.clamp(offset, 0, 16);
 
-    romOffset = offset;
+    if (clampedOffset == romOffset) {
+        return;
+    }
+
+    prevTilesOffset = clampedOffset;
+    tilesOffset = clampedOffset;
+
+    romOffset = clampedOffset;
+
+    processROMData();
+}
+
+pub fn setTilesCurrentLine(lineNumber: i32, updateScrollbar: bool) void {
+    const clampedLineNumber: i32 = std.math.clamp(lineNumber, 0, tilesLastLine);
+
+    if (clampedLineNumber == tilesCurrentLine) {
+        return;
+    }
+
+    tilesCurrentLine = clampedLineNumber;
+
+    romAddress = tilesCurrentLine * Consts.TILES_TILES_PER_LINE * bytesPerTile;
+
+    if (updateScrollbar) {
+        tilesWindow.scrollbarVertical.?.value = @as(f32, @floatFromInt(tilesCurrentLine)) / @as(f32, @floatFromInt(tilesLastLine));
+    }
 
     processROMData();
 }
@@ -326,6 +398,8 @@ pub fn loadROM(fileName: [*c]u8) anyerror!void {
     if (romData.len > 0) {
         rl.unloadFileData(romData);
     }
+
+    romFileName = fileName;
 
     romData = try rl.loadFileData(fileName);
 
@@ -345,11 +419,49 @@ pub fn loadROM(fileName: [*c]u8) anyerror!void {
 
     prevPixelMode = pixelMode;
 
-    loadPixelMode();
+    try loadPixelMode();
+}
+
+pub fn saveROM() void {
+    if (romData.len == 0) {
+        return;
+    }
+
+    if (romFileName) |fileName| {
+        _ = rl.saveFileData(fileName, romData);
+    }
+}
+
+pub fn handleInputs() void {
+    if (rl.isKeyPressed(.equal) or rl.isKeyPressedRepeat(.equal)) {
+        setROMOffset(romOffset + 1);
+    } else if (rl.isKeyPressed(.minus) or rl.isKeyPressedRepeat(.minus)) {
+        setROMOffset(romOffset - 1);
+    } else if (rl.isKeyPressed(.up) or rl.isKeyPressedRepeat(.up)) {
+        setTilesCurrentLine(tilesCurrentLine - 1, true);
+    } else if (rl.isKeyPressed(.down) or rl.isKeyPressedRepeat(.down)) {
+        setTilesCurrentLine(tilesCurrentLine + 1, true);
+    } else if (rl.isKeyPressed(.page_up) or rl.isKeyPressedRepeat(.page_up)) {
+        setTilesCurrentLine(tilesCurrentLine - Consts.TILES_LINES, true);
+    } else if (rl.isKeyPressed(.page_down) or rl.isKeyPressedRepeat(.page_down)) {
+        setTilesCurrentLine(tilesCurrentLine + Consts.TILES_LINES, true);
+    } else if (rl.isKeyDown(.left_control)) {
+        if (rl.isKeyPressed(.home) or rl.isKeyPressedRepeat(.home)) {
+            setTilesCurrentLine(0, true);
+        } else if (rl.isKeyPressed(.end) or rl.isKeyPressedRepeat(.end)) {
+            setTilesCurrentLine(tilesLastLine, true);
+        }
+    }
+
+    const wheel: f32 = rl.getMouseWheelMove();
+
+    if (wheel != 0) {
+        setTilesCurrentLine(tilesCurrentLine - @as(i32, @intFromFloat(wheel)) * Consts.WHEEL_SCROLL_LINES, true);
+    }
 }
 
 pub fn tilesWindowEventHandler(event: fw.GuiFloatWindowEvent) void {
-    var handled: bool = false;
+    var mouseHandled: bool = false;
 
     var tilesTileX: i32 = undefined;
     var tilesTileY: i32 = undefined;
@@ -361,16 +473,21 @@ pub fn tilesWindowEventHandler(event: fw.GuiFloatWindowEvent) void {
         .right_click_start,
         .right_click_moved,
         => |arguments| {
-            handled = true;
+            mouseHandled = true;
 
             tilesTileX = @divFloor(@as(i32, @intFromFloat(arguments.mousePosition.x)), 8 * tilesPixelSize);
             tilesTileY = @divFloor(@as(i32, @intFromFloat(arguments.mousePosition.y)), 8 * tilesPixelSize);
             tilesTileIndex = @as(usize, @intCast(tilesTileY * Consts.TILES_TILES_PER_LINE + tilesTileX)) * 8 * 8;
         },
+        .scroll_vertical_start,
+        .scroll_vertical_moved,
+        => |arguments| {
+            setTilesCurrentLine(@as(i32, @intFromFloat(arguments.scrollbar.value * @as(f32, @floatFromInt(tilesLastLine)))), false);
+        },
         else => {},
     }
 
-    if (!handled) {
+    if (!mouseHandled) {
         return;
     }
 
@@ -476,7 +593,6 @@ pub fn editorWindowEventHandler(event: fw.GuiFloatWindowEvent) void {
 }
 
 pub fn palleteWindowEventHandler(event: fw.GuiFloatWindowEvent) void {
-    const mousePosition: rl.Vector2 = rl.getMousePosition();
     const colorsRect: rl.Rectangle = .{
         .x = palleteWindow.bodyRect.x,
         .y = palleteWindow.bodyRect.y,
@@ -523,8 +639,6 @@ pub fn palleteWindowEventHandler(event: fw.GuiFloatWindowEvent) void {
 }
 
 pub fn handleAndDrawTilesWindow() anyerror!void {
-    const mousePosition: rl.Vector2 = rl.getMousePosition();
-
     for (0..tilesData.len) |i| {
         const tile: i32 = @divFloor(@as(i32, @intCast(i)), 8 * 8);
         const leftover: i32 = @mod(@as(i32, @intCast(i)), 8 * 8);
@@ -565,8 +679,6 @@ pub fn handleAndDrawTilesWindow() anyerror!void {
 }
 
 pub fn handleAndDrawClipboardWindow() anyerror!void {
-    const mousePosition: rl.Vector2 = rl.getMousePosition();
-
     for (0..clipboardData.len) |i| {
         const tile: i32 = @divFloor(@as(i32, @intCast(i)), 8 * 8);
         const leftover: i32 = @mod(@as(i32, @intCast(i)), 8 * 8);
@@ -607,8 +719,6 @@ pub fn handleAndDrawClipboardWindow() anyerror!void {
 }
 
 pub fn handleAndDrawEditorWindow() anyerror!void {
-    const mousePosition: rl.Vector2 = rl.getMousePosition();
-
     for (0..editorData.len) |i| {
         const tile: i32 = @divFloor(@as(i32, @intCast(i)), 8 * 8);
         const leftover: i32 = @mod(@as(i32, @intCast(i)), 8 * 8);
@@ -758,7 +868,6 @@ pub fn handleAndDrawPalleteWindow() anyerror!void {
         );
     }
 
-    const mousePosition: rl.Vector2 = rl.getMousePosition();
     const colorsRect: rl.Rectangle = .{
         .x = palleteWindow.bodyRect.x,
         .y = palleteWindow.bodyRect.y,
@@ -809,12 +918,14 @@ pub fn handleAndDrawPalleteWindow() anyerror!void {
     }, "#142#", &palleteEditing);
 
     if (palleteEditing) {
-        _ = rg.guiColorPicker(.{
+        const colorPickerRect: rl.Rectangle = .{
             .x = @as(f32, @floatFromInt(bodyX + 88)),
             .y = @as(f32, @floatFromInt(bodyY + Consts.PALLETE_AREA_SIZE + 8)),
             .width = Consts.PALLETE_AREA_SIZE - 120,
             .height = 48,
-        }, "", &colorPickerColor);
+        };
+
+        _ = rg.guiColorPicker(colorPickerRect, "", &colorPickerColor);
 
         const setButtonsWidth: i32 = @divFloor(Consts.PALLETE_AREA_SIZE - 96, 2);
 
@@ -1021,7 +1132,7 @@ pub fn handleAndDrawToolbar() anyerror!void {
     }
 
     // File
-    _ = rg.guiGroupBox(.{ .x = 556, .y = 8, .width = 264, .height = Consts.TOOLBAR_HEIGHT - 12 }, "File");
+    _ = rg.guiGroupBox(.{ .x = 556, .y = 8, .width = 296, .height = Consts.TOOLBAR_HEIGHT - 12 }, "File");
 
     rl.drawTextEx(font, "Pixel mode:", .{ .x = 564, .y = 16 }, 12, 0, lineColor);
 
@@ -1051,7 +1162,7 @@ pub fn handleAndDrawToolbar() anyerror!void {
     if (pixelMode != prevPixelMode) {
         prevPixelMode = pixelMode;
 
-        loadPixelMode();
+        try loadPixelMode();
     }
 
     rl.drawTextEx(font, "Offset:", .{ .x = 742, .y = 16 }, 12, 0, lineColor);
@@ -1059,15 +1170,32 @@ pub fn handleAndDrawToolbar() anyerror!void {
     _ = rg.guiSpinner(.{ .x = 742, .y = 28, .width = 70, .height = 24 }, "", &tilesOffset, 0, 16, false);
 
     if (tilesOffset != prevTilesOffset) {
-        prevTilesOffset = tilesOffset;
+        setROMOffset(tilesOffset);
+    }
 
-        processROMData();
+    if (romFileName == null) {
+        rg.guiSetState(@intFromEnum(rg.GuiState.state_disabled));
+    }
+
+    const saveResult: i32 = rg.guiButton(.{
+        .x = 820,
+        .y = 28,
+        .width = 24,
+        .height = 24,
+    }, "#2#");
+
+    if (saveResult != 0) {
+        saveROM();
+    }
+
+    if (romFileName == null) {
+        rg.guiSetState(@intFromEnum(rg.GuiState.state_normal));
     }
 
     // Application
-    _ = rg.guiGroupBox(.{ .x = 824, .y = 8, .width = 116, .height = Consts.TOOLBAR_HEIGHT - 12 }, "Application");
+    _ = rg.guiGroupBox(.{ .x = 856, .y = 8, .width = 116, .height = Consts.TOOLBAR_HEIGHT - 12 }, "Application");
 
-    rl.drawTextEx(font, "Style:", .{ .x = 832, .y = 16 }, 12, 0, lineColor);
+    rl.drawTextEx(font, "Style:", .{ .x = 864, .y = 16 }, 12, 0, lineColor);
 
     rg.guiSetStyle(
         rg.GuiControl.default,
@@ -1076,7 +1204,7 @@ pub fn handleAndDrawToolbar() anyerror!void {
     );
 
     const styleDropdownResult: i32 = rg.guiDropdownBox(
-        .{ .x = 832, .y = 28, .width = 100, .height = 24 },
+        .{ .x = 864, .y = 28, .width = 100, .height = 24 },
         " Amber; Ashes; Bluish; Candy; Cherry; Cyber; Dark; Enefete; Jungle; Lavanda; Sunny; Terminal",
         &styleIndex,
         styleDropdownActive,
@@ -1108,14 +1236,14 @@ pub fn main() anyerror!u8 {
     rl.setConfigFlags(.{ .window_resizable = true });
 
     rl.initWindow(
-        944,
+        976,
         Consts.TOOLBAR_HEIGHT + 32 + fw.GuiFloatWindow.HEADER_HEIGHT + 2 * fw.GuiFloatWindow.BORDER_WIDTH + Consts.TILES_LINES * 8 * tilesPixelSize + 32,
         "Startile",
     );
     defer rl.closeWindow();
 
     rl.setWindowMinSize(
-        944,
+        976,
         Consts.TOOLBAR_HEIGHT + fw.GuiFloatWindow.HEADER_HEIGHT,
     );
 
@@ -1125,8 +1253,10 @@ pub fn main() anyerror!u8 {
     defer rl.unloadFont(font);
 
     loadStyle();
+
     resetAll();
-    loadPixelMode();
+
+    try loadPixelMode();
 
     tilesWindow = try fw.GuiFloatWindow.init(
         gpa_allocator,
@@ -1209,6 +1339,8 @@ pub fn main() anyerror!u8 {
         rl.beginDrawing();
         defer rl.endDrawing();
 
+        mousePosition = rl.getMousePosition();
+
         rl.clearBackground(backgroundColor);
 
         handleDroppedFiles: {
@@ -1223,6 +1355,8 @@ pub fn main() anyerror!u8 {
                 try loadROM(filePaths.paths[0][0..]);
             }
         }
+
+        handleInputs();
 
         try handleAndDrawWindows();
 
