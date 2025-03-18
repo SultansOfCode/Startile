@@ -45,6 +45,7 @@ var palleteCount: usize = 2;
 var palleteRows: i32 = 1;
 var palleteColumns: i32 = 1;
 
+var clipboardData: [8 * 8 * Consts.CLIPBOARD_TILES_PER_LINE * Consts.CLIPBOARD_LINES]u8 = .{0} ** (8 * 8 * Consts.CLIPBOARD_TILES_PER_LINE * Consts.CLIPBOARD_LINES);
 var editorData: [8 * 8 * Consts.EDITOR_SQUARE_SIZE_MAX * Consts.EDITOR_SQUARE_SIZE_MAX]u8 = .{0} ** (8 * 8 * Consts.EDITOR_SQUARE_SIZE_MAX * Consts.EDITOR_SQUARE_SIZE_MAX);
 
 var prevPixelMode: i32 = 4;
@@ -78,6 +79,9 @@ pub fn initializePallete() void {
     palleteCount = 256;
     palleteRows = 16;
     palleteColumns = 16;
+
+    editorForegroundColorIndex = 255;
+    editorBackgroundColorIndex = 0;
 }
 
 pub fn loadPixelModePallete() void {
@@ -195,6 +199,50 @@ pub fn windowEventHandler(event: fw.GuiFloatWindowEvent) void {
     }
 }
 
+pub fn clipboardWindowEventHandler(event: fw.GuiFloatWindowEvent) void {
+    var handled: bool = false;
+
+    var clipboardTileX: i32 = undefined;
+    var clipboardTileY: i32 = undefined;
+    var clipboardTileIndex: usize = undefined;
+
+    var editorTileIndex: usize = undefined;
+
+    switch (event) {
+        .left_click_start,
+        .left_click_moved,
+        .right_click_start,
+        .right_click_moved,
+        => |arguments| {
+            handled = true;
+
+            clipboardTileX = @divFloor(@as(i32, @intFromFloat(arguments.mousePosition.x)), 8 * clipboardPixelSize);
+            clipboardTileY = @divFloor(@as(i32, @intFromFloat(arguments.mousePosition.y)), 8 * clipboardPixelSize);
+            clipboardTileIndex = @as(usize, @intCast(clipboardTileY * Consts.CLIPBOARD_TILES_PER_LINE + clipboardTileX)) * 8 * 8;
+            editorTileIndex = @as(usize, @intCast(tileActive * 8 * 8));
+        },
+        else => {},
+    }
+
+    if (!handled) {
+        return;
+    }
+
+    switch (event) {
+        .left_click_start, .left_click_moved => {
+            for (0..8 * 8) |i| {
+                editorData[editorTileIndex + i] = clipboardData[clipboardTileIndex + i];
+            }
+        },
+        .right_click_start, .right_click_moved => {
+            for (0..8 * 8) |i| {
+                clipboardData[clipboardTileIndex + i] = editorData[editorTileIndex + i];
+            }
+        },
+        else => {},
+    }
+}
+
 pub fn editorWindowEventHandler(event: fw.GuiFloatWindowEvent) void {
     var drawing: bool = false;
     var colorIndex: u8 = 0;
@@ -309,6 +357,24 @@ pub fn handleAndDrawTilesWindow() anyerror!void {
 
 pub fn handleAndDrawClipboardWindow() anyerror!void {
     const mousePosition: rl.Vector2 = rl.getMousePosition();
+
+    for (0..clipboardData.len) |i| {
+        const tile: i32 = @divFloor(@as(i32, @intCast(i)), 8 * 8);
+        const leftover: i32 = @mod(@as(i32, @intCast(i)), 8 * 8);
+        const tileX: i32 = @mod(tile, Consts.CLIPBOARD_TILES_PER_LINE);
+        const tileY: i32 = @divFloor(tile, Consts.CLIPBOARD_TILES_PER_LINE);
+        const pixelX: i32 = @mod(leftover, 8);
+        const pixelY: i32 = @divFloor(leftover, 8);
+        const color: rl.Color = pallete[clipboardData[i]];
+
+        rl.drawRectangle(
+            @as(i32, @intFromFloat(clipboardWindow.bodyRect.x)) + tileX * 8 * clipboardPixelSize + pixelX * clipboardPixelSize,
+            @as(i32, @intFromFloat(clipboardWindow.bodyRect.y)) + tileY * 8 * clipboardPixelSize + pixelY * clipboardPixelSize,
+            clipboardPixelSize,
+            clipboardPixelSize,
+            color,
+        );
+    }
 
     if (clipboardGrid) {
         var mouseCell: rl.Vector2 = undefined;
@@ -630,7 +696,7 @@ pub fn handleAndDrawToolbar() anyerror!void {
     if (tilesPixelSize != prevTilesPixelSize) {
         prevTilesPixelSize = tilesPixelSize;
 
-        tilesWindow.setSize(Consts.TILES_PER_LINE * 8 * tilesPixelSize, Consts.TILES_LINES * 8 * tilesPixelSize);
+        tilesWindow.setSize(Consts.TILES_TILES_PER_LINE * 8 * tilesPixelSize, Consts.TILES_LINES * 8 * tilesPixelSize);
 
         ensureWindowVisibility(tilesWindow);
     }
@@ -649,7 +715,7 @@ pub fn handleAndDrawToolbar() anyerror!void {
     if (clipboardPixelSize != prevClipboardPixelSize) {
         prevClipboardPixelSize = clipboardPixelSize;
 
-        clipboardWindow.setSize(16 * 8 * clipboardPixelSize, 8 * 8 * clipboardPixelSize);
+        clipboardWindow.setSize(Consts.CLIPBOARD_TILES_PER_LINE * 8 * clipboardPixelSize, Consts.CLIPBOARD_LINES * 8 * clipboardPixelSize);
 
         ensureWindowVisibility(clipboardWindow);
     }
@@ -786,7 +852,7 @@ pub fn main() anyerror!u8 {
         gpa_allocator,
         32,
         Consts.TOOLBAR_HEIGHT + 16,
-        Consts.TILES_PER_LINE * 8 * tilesPixelSize,
+        Consts.TILES_TILES_PER_LINE * 8 * tilesPixelSize,
         Consts.TILES_LINES * 8 * tilesPixelSize,
         "Tiles",
         true,
@@ -800,15 +866,15 @@ pub fn main() anyerror!u8 {
         gpa_allocator,
         @as(i32, @intFromFloat(tilesWindow.windowRect.x + tilesWindow.windowRect.width)) + 32,
         Consts.TOOLBAR_HEIGHT + 16,
-        16 * 8 * tilesPixelSize,
-        8 * 8 * tilesPixelSize,
+        Consts.CLIPBOARD_TILES_PER_LINE * 8 * tilesPixelSize,
+        Consts.CLIPBOARD_LINES * 8 * tilesPixelSize,
         "Clipboard",
         false,
         false,
     );
     defer clipboardWindow.deinit();
 
-    try clipboardWindow.addEventListener(&windowEventHandler);
+    try clipboardWindow.addEventListener(&clipboardWindowEventHandler);
 
     editorWindow = try fw.GuiFloatWindow.init(
         gpa_allocator,

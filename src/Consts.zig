@@ -4,8 +4,11 @@ pub const TOOLBAR_HEIGHT: i32 = 64;
 pub const TOOLBAR_ITEM_HEIGHT: i32 = 32;
 pub const TOOLBAR_PADDING: i32 = @divFloor(TOOLBAR_HEIGHT - TOOLBAR_ITEM_HEIGHT, 2);
 
-pub const TILES_PER_LINE: i32 = 16;
+pub const TILES_TILES_PER_LINE: i32 = 16;
 pub const TILES_LINES: i32 = 24;
+
+pub const CLIPBOARD_TILES_PER_LINE: i32 = 16;
+pub const CLIPBOARD_LINES: i32 = 8;
 
 pub const TILES_PIXEL_SIZE_MIN: i32 = 1;
 pub const TILES_PIXEL_SIZE_MAX: i32 = 8;
