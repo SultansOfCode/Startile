@@ -236,18 +236,15 @@ pub fn resetAll() void {
 }
 
 pub fn initializePallete() void {
-    for (0..pallete.len) |i| {
-        const value: u8 = @as(u8, @intCast(i));
+    resetPallete();
+
+    const part: f32 = 1 / @as(f32, @floatFromInt(palleteCount - 1));
+
+    for (0..palleteCount) |i| {
+        const value: u8 = @as(u8, @intFromFloat(255 * @as(f32, @floatFromInt(i)) * part));
 
         pallete[i] = rl.Color.init(value, value, value, 255);
     }
-
-    palleteCount = 256;
-    palleteRows = 16;
-    palleteColumns = 16;
-
-    editorForegroundColorIndex = 255;
-    editorBackgroundColorIndex = 0;
 }
 
 pub fn loadPixelModePallete() anyerror!void {
@@ -257,37 +254,58 @@ pub fn loadPixelModePallete() anyerror!void {
 
     switch (mode) {
         .one_bpp => {
-            pallete[0] = rl.Color.black;
-            pallete[1] = rl.Color.white;
-
-            palleteCount = 2;
             palleteRows = 2;
             palleteColumns = 1;
 
             bitsPerPixel = 1;
         },
-        .two_bpp_gb_gbc => {
-            pallete[0] = rl.Color.black;
-            pallete[1] = rl.Color.gray;
-            pallete[2] = rl.Color.light_gray;
-            pallete[3] = rl.Color.white;
-
-            palleteCount = 4;
+        .two_bpp_nes,
+        .two_bpp_virtual_boy,
+        .two_bpp_neo_geo_pocket,
+        .two_bpp_gb_gbc,
+        => {
             palleteRows = 2;
             palleteColumns = 2;
 
             bitsPerPixel = 2;
         },
-        .eight_bpp_snes => {
-            initializePallete();
+        .three_bpp_snes => {
+            palleteRows = 2;
+            palleteColumns = 4;
+
+            bitsPerPixel = 3;
         },
-        else => {},
+        .four_bpp_sms_gg_wsc,
+        .four_bpp_genesis,
+        .four_bpp_snes,
+        .four_bpp_gba,
+        => {
+            palleteRows = 4;
+            palleteColumns = 4;
+
+            bitsPerPixel = 4;
+        },
+        .eight_bpp_snes,
+        .eight_bpp_snes_mode7_gba,
+        => {
+            palleteRows = 16;
+            palleteColumns = 16;
+
+            bitsPerPixel = 8;
+        },
     }
+
+    palleteCount = std.math.pow(usize, 2, bitsPerPixel);
+
+    initializePallete();
 
     bytesPerTile = 8 * bitsPerPixel;
 
+    setROMOffset(romOffset, false);
+
     tilesLines = try std.math.divCeil(i32, @as(i32, @intCast(romData.len)), @as(i32, @intCast(bytesPerTile * Consts.TILES_TILES_PER_LINE)));
     tilesLastLine = @max(0, tilesLines - Consts.TILES_LINES);
+    tilesCurrentLine = @divFloor(romAddress, bytesPerTile * Consts.TILES_TILES_PER_LINE);
 
     editorForegroundColorIndex = @as(u8, @intCast(palleteCount - 1));
     editorBackgroundColorIndex = 0;
@@ -323,23 +341,40 @@ pub fn processROMData() void {
 
                 processColor: {
                     switch (@as(Consts.PixelMode, @enumFromInt(pixelMode))) {
-                        .two_bpp_gb_gbc => {
-                            const byteIndex: usize = @as(usize, @intCast(dataIndex)) + y * @as(usize, @intCast(bitsPerPixel));
+                        .one_bpp,
+                        => {
+                            const byteIndex: usize = @as(usize, @intCast(dataIndex)) + y;
+
+                            if (byteIndex >= romData.len - 1) {
+                                break :processColor;
+                            }
+                            const bit: u8 = 7 - @as(u8, @intCast(x));
+                            const bitValue: u8 = @as(u8, @intCast(1)) << @as(u3, @intCast(bit));
+                            const byte: u8 = romData[byteIndex];
+
+                            if (byte & bitValue != 0) {
+                                colorIndex += 1;
+                            }
+                        },
+                        .two_bpp_nes,
+                        .two_bpp_gb_gbc,
+                        => {
+                            const byteIndex: usize = @as(usize, @intCast(dataIndex)) + y * 2;
 
                             if (byteIndex >= romData.len - 1) {
                                 break :processColor;
                             }
 
-                            const byteOne: u8 = romData[byteIndex];
-                            const byteTwo: u8 = romData[byteIndex + 1];
                             const bit: u8 = 7 - @as(u8, @intCast(x));
                             const bitValue: u8 = @as(u8, @intCast(1)) << @as(u3, @intCast(bit));
+                            const byteOne: u8 = romData[byteIndex];
+                            const byteTwo: u8 = romData[byteIndex + 1];
 
-                            if ((byteOne & bitValue) != 0) {
+                            if (byteOne & bitValue != 0) {
                                 colorIndex += 1;
                             }
 
-                            if ((byteTwo & bitValue) != 0) {
+                            if (byteTwo & bitValue != 0) {
                                 colorIndex += 2;
                             }
                         },
@@ -355,6 +390,7 @@ pub fn processROMData() void {
 
 pub fn loadPixelMode() anyerror!void {
     try loadPixelModePallete();
+
     processROMData();
 }
 
@@ -364,8 +400,8 @@ pub fn setROMAddress(address: i32) void {
     processROMData();
 }
 
-pub fn setROMOffset(offset: i32) void {
-    const clampedOffset: i32 = std.math.clamp(offset, 0, 16);
+pub fn setROMOffset(offset: i32, process: bool) void {
+    const clampedOffset: i32 = std.math.clamp(offset, 0, bytesPerTile);
 
     if (clampedOffset == romOffset) {
         return;
@@ -375,6 +411,10 @@ pub fn setROMOffset(offset: i32) void {
     tilesOffset = clampedOffset;
 
     romOffset = clampedOffset;
+
+    if (!process) {
+        return;
+    }
 
     processROMData();
 }
@@ -416,9 +456,13 @@ pub fn loadROM(fileName: [*c]u8) anyerror!void {
     prevTilesOffset = 0;
     tilesOffset = 0;
 
+    tilesWindow.scrollbarVertical.?.value = 0;
+
     resetAll();
 
-    if (rl.isFileExtension(fileName, ".gb") or rl.isFileExtension(fileName, ".gbc")) {
+    if (rl.isFileExtension(fileName, ".nes") or rl.isFileExtension(fileName, ".nsf") or rl.isFileExtension(fileName, ".fds") or rl.isFileExtension(fileName, ".unf")) {
+        pixelMode = @intFromEnum(Consts.PixelMode.two_bpp_nes);
+    } else if (rl.isFileExtension(fileName, ".gb") or rl.isFileExtension(fileName, ".gbc")) {
         pixelMode = @intFromEnum(Consts.PixelMode.two_bpp_gb_gbc);
     } else {
         pixelMode = @intFromEnum(Consts.PixelMode.one_bpp);
@@ -441,9 +485,9 @@ pub fn saveROM() void {
 
 pub fn handleInputs() void {
     if (rl.isKeyPressed(.equal) or rl.isKeyPressedRepeat(.equal)) {
-        setROMOffset(romOffset + 1);
+        setROMOffset(romOffset + 1, true);
     } else if (rl.isKeyPressed(.minus) or rl.isKeyPressedRepeat(.minus)) {
-        setROMOffset(romOffset - 1);
+        setROMOffset(romOffset - 1, true);
     } else if (rl.isKeyPressed(.up) or rl.isKeyPressedRepeat(.up)) {
         setTilesCurrentLine(tilesCurrentLine - 1, true);
     } else if (rl.isKeyPressed(.down) or rl.isKeyPressedRepeat(.down)) {
@@ -484,7 +528,7 @@ pub fn tilesWindowEventHandler(event: fw.GuiFloatWindowEvent) void {
 
             tilesTileX = @divFloor(@as(i32, @intFromFloat(arguments.mousePosition.x)), 8 * tilesPixelSize);
             tilesTileY = @divFloor(@as(i32, @intFromFloat(arguments.mousePosition.y)), 8 * tilesPixelSize);
-            tilesTileIndex = @as(usize, @intCast(tilesTileY * Consts.TILES_TILES_PER_LINE + tilesTileX)) * 8 * 8;
+            tilesTileIndex = @as(usize, @intCast(tilesTileY * Consts.TILES_TILES_PER_LINE + tilesTileX));
         },
         .scroll_vertical_start,
         .scroll_vertical_moved,
@@ -498,21 +542,76 @@ pub fn tilesWindowEventHandler(event: fw.GuiFloatWindowEvent) void {
         return;
     }
 
-    const editorTileIndex: usize = @as(usize, @intCast(activeTile * 8 * 8));
+    const tilesDataIndex: usize = tilesTileIndex * 8 * 8;
+    const romDataIndex: usize = @as(usize, @intCast(tilesCurrentLine * Consts.TILES_TILES_PER_LINE * bytesPerTile)) + tilesTileIndex * @as(usize, @intCast(bytesPerTile)) + @as(usize, @intCast(romOffset));
+
+    if (romDataIndex >= romData.len) {
+        return;
+    }
+
+    const editorDataIndex: usize = @as(usize, @intCast(activeTile * 8 * 8));
 
     switch (event) {
-        .left_click_start, .left_click_moved => {
+        .left_click_start,
+        .left_click_moved,
+        => {
             for (0..8 * 8) |i| {
-                editorData[editorTileIndex + i] = tilesData[tilesTileIndex + i];
+                editorData[editorDataIndex + i] = tilesData[tilesDataIndex + i];
             }
         },
-        .right_click_start, .right_click_moved => {
-            for (0..8 * 8) |i| {
-                tilesData[tilesTileIndex + i] = editorData[editorTileIndex + i];
+        .right_click_start,
+        .right_click_moved,
+        => {
+            switch (@as(Consts.PixelMode, @enumFromInt(pixelMode))) {
+                .one_bpp,
+                => {
+                    for (0..8) |y| {
+                        var byte: u8 = 0;
+
+                        for (0..8) |x| {
+                            const colorIndex: i32 = editorData[editorDataIndex + y * 8 + x];
+                            const bit: u8 = 7 - @as(u8, @intCast(x));
+                            const bitValue: u8 = @as(u8, @intCast(1)) << @as(u3, @intCast(bit));
+
+                            if (colorIndex & 1 != 0) {
+                                byte |= bitValue;
+                            }
+                        }
+
+                        romData[romDataIndex + y] = byte;
+                    }
+                },
+                .two_bpp_gb_gbc,
+                => {
+                    for (0..8) |y| {
+                        var byteOne: u8 = 0;
+                        var byteTwo: u8 = 0;
+
+                        for (0..8) |x| {
+                            const colorIndex: i32 = editorData[editorDataIndex + y * 8 + x];
+                            const bit: u8 = 7 - @as(u8, @intCast(x));
+                            const bitValue: u8 = @as(u8, @intCast(1)) << @as(u3, @intCast(bit));
+
+                            if (colorIndex & 1 != 0) {
+                                byteOne |= bitValue;
+                            }
+
+                            if (colorIndex & 2 != 0) {
+                                byteTwo |= bitValue;
+                            }
+                        }
+
+                        romData[romDataIndex + y * 2] = byteOne;
+                        romData[romDataIndex + y * 2 + 1] = byteTwo;
+                    }
+                },
+                else => {},
             }
         },
         else => {},
     }
+
+    processROMData();
 }
 
 pub fn clipboardWindowEventHandler(event: fw.GuiFloatWindowEvent) void {
@@ -544,12 +643,16 @@ pub fn clipboardWindowEventHandler(event: fw.GuiFloatWindowEvent) void {
     const editorTileIndex: usize = @as(usize, @intCast(activeTile * 8 * 8));
 
     switch (event) {
-        .left_click_start, .left_click_moved => {
+        .left_click_start,
+        .left_click_moved,
+        => {
             for (0..8 * 8) |i| {
                 editorData[editorTileIndex + i] = clipboardData[clipboardTileIndex + i];
             }
         },
-        .right_click_start, .right_click_moved => {
+        .right_click_start,
+        .right_click_moved,
+        => {
             for (0..8 * 8) |i| {
                 clipboardData[clipboardTileIndex + i] = editorData[editorTileIndex + i];
             }
@@ -1174,10 +1277,10 @@ pub fn handleAndDrawToolbar() anyerror!void {
 
     rl.drawTextEx(font, "Offset:", .{ .x = 742, .y = 16 }, 12, 0, lineColor);
 
-    _ = rg.guiSpinner(.{ .x = 742, .y = 28, .width = 70, .height = Consts.TOOLBAR_ITEM_HEIGHT }, "", &tilesOffset, 0, 16, false);
+    _ = rg.guiSpinner(.{ .x = 742, .y = 28, .width = 70, .height = Consts.TOOLBAR_ITEM_HEIGHT }, "", &tilesOffset, 0, bytesPerTile, false);
 
     if (tilesOffset != prevTilesOffset) {
-        setROMOffset(tilesOffset);
+        setROMOffset(tilesOffset, true);
     }
 
     if (romFileName == null) {
