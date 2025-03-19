@@ -20,6 +20,9 @@ const styles: [12][*:0]const u8 = .{
     "styles/style_terminal.rgs",
 };
 
+var gpa: std.heap.GeneralPurposeAllocator(.{}) = undefined;
+var gpa_allocator: std.mem.Allocator = undefined;
+
 var font: rl.Font = undefined;
 
 var prevStyleIndex: i32 = 8;
@@ -72,7 +75,7 @@ var palleteRows: i32 = 2;
 var palleteColumns: i32 = 1;
 var palleteEditing: bool = false;
 
-var romFileName: ?[*c]u8 = null;
+var romFileName: ?[:0]u8 = null;
 var romData: []u8 = undefined;
 var romAddress: i32 = undefined;
 var romOffset: i32 = undefined;
@@ -147,7 +150,7 @@ pub fn ensureWindowVisibility(window: *fw.GuiFloatWindow) void {
     const left: f32 = window.windowRect.x;
     const top: f32 = window.windowRect.y;
     const right: f32 = window.windowRect.x + window.windowRect.width;
-    const limitTop: f32 = @as(f32, @floatFromInt(Consts.TOOLBAR_HEIGHT));
+    const limitTop: f32 = @as(f32, @floatFromInt(Consts.TOOLBAR_HEIGHT + Consts.STATUSBAR_HEIGHT));
     const limitLeft: f32 = @as(f32, @floatFromInt(fw.GuiFloatWindow.HEADER_HEIGHT));
     const limitRight: f32 = @as(f32, @floatFromInt(rl.getScreenWidth() - fw.GuiFloatWindow.HEADER_HEIGHT));
     const limitBottom: f32 = @as(f32, @floatFromInt(rl.getScreenHeight() - fw.GuiFloatWindow.HEADER_HEIGHT));
@@ -399,7 +402,11 @@ pub fn loadROM(fileName: [*c]u8) anyerror!void {
         rl.unloadFileData(romData);
     }
 
-    romFileName = fileName;
+    if (romFileName != null) {
+        gpa_allocator.free(romFileName.?);
+    }
+
+    romFileName = try gpa_allocator.dupeZ(u8, std.mem.span(fileName));
 
     romData = try rl.loadFileData(fileName);
 
@@ -899,8 +906,8 @@ pub fn handleAndDrawPalleteWindow() anyerror!void {
     const swapButtonResult: i32 = rg.guiButton(.{
         .x = @as(f32, @floatFromInt(bodyX + 7)),
         .y = @as(f32, @floatFromInt(bodyY + Consts.PALLETE_AREA_SIZE + 57)),
-        .width = 24,
-        .height = 24,
+        .width = Consts.TOOLBAR_ITEM_HEIGHT,
+        .height = Consts.TOOLBAR_ITEM_HEIGHT,
     }, "#77#");
 
     if (swapButtonResult != 0) {
@@ -913,8 +920,8 @@ pub fn handleAndDrawPalleteWindow() anyerror!void {
     _ = rg.guiToggle(.{
         .x = @as(f32, @floatFromInt(bodyX + 56)),
         .y = @as(f32, @floatFromInt(bodyY + Consts.PALLETE_AREA_SIZE + 8)),
-        .width = 24,
-        .height = 24,
+        .width = Consts.TOOLBAR_ITEM_HEIGHT,
+        .height = Consts.TOOLBAR_ITEM_HEIGHT,
     }, "#142#", &palleteEditing);
 
     if (palleteEditing) {
@@ -933,7 +940,7 @@ pub fn handleAndDrawPalleteWindow() anyerror!void {
             .x = @as(f32, @floatFromInt(bodyX + 88)),
             .y = @as(f32, @floatFromInt(bodyY + Consts.PALLETE_AREA_SIZE + 56)),
             .width = setButtonsWidth,
-            .height = 24,
+            .height = Consts.TOOLBAR_ITEM_HEIGHT,
         }, "Set FG");
 
         if (setForegroundResult != 0) {
@@ -944,7 +951,7 @@ pub fn handleAndDrawPalleteWindow() anyerror!void {
             .x = @as(f32, @floatFromInt(bodyX + 88 + setButtonsWidth)),
             .y = @as(f32, @floatFromInt(bodyY + Consts.PALLETE_AREA_SIZE + 56)),
             .width = setButtonsWidth,
-            .height = 24,
+            .height = Consts.TOOLBAR_ITEM_HEIGHT,
         }, "Set BG");
 
         if (setBackgroundResult != 0) {
@@ -1052,7 +1059,7 @@ pub fn handleAndDrawToolbar() anyerror!void {
 
     rl.drawTextEx(font, "Pixel size:", .{ .x = 12, .y = 16 }, 12, 0, lineColor);
 
-    _ = rg.guiSpinner(.{ .x = 12, .y = 28, .width = 70, .height = 24 }, "", &tilesPixelSize, Consts.TILES_PIXEL_SIZE_MIN, Consts.TILES_PIXEL_SIZE_MAX, false);
+    _ = rg.guiSpinner(.{ .x = 12, .y = 28, .width = 70, .height = Consts.TOOLBAR_ITEM_HEIGHT }, "", &tilesPixelSize, Consts.TILES_PIXEL_SIZE_MIN, Consts.TILES_PIXEL_SIZE_MAX, false);
 
     if (tilesPixelSize != prevTilesPixelSize) {
         prevTilesPixelSize = tilesPixelSize;
@@ -1064,14 +1071,14 @@ pub fn handleAndDrawToolbar() anyerror!void {
 
     rl.drawTextEx(font, "Show grid:", .{ .x = 90, .y = 16 }, 12, 0, lineColor);
 
-    _ = rg.guiToggle(.{ .x = 90, .y = 28, .width = 60, .height = 24 }, "#97#", &tilesGrid);
+    _ = rg.guiToggle(.{ .x = 90, .y = 28, .width = 60, .height = Consts.TOOLBAR_ITEM_HEIGHT }, "#97#", &tilesGrid);
 
     // Clipboard window
     _ = rg.guiGroupBox(.{ .x = 162, .y = 8, .width = 154, .height = Consts.TOOLBAR_HEIGHT - 12 }, "Clipboard window");
 
     rl.drawTextEx(font, "Pixel size:", .{ .x = 170, .y = 16 }, 12, 0, lineColor);
 
-    _ = rg.guiSpinner(.{ .x = 170, .y = 28, .width = 70, .height = 24 }, "", &clipboardPixelSize, Consts.CLIPBOARD_PIXEL_SIZE_MIN, Consts.CLIPBOARD_PIXEL_SIZE_MAX, false);
+    _ = rg.guiSpinner(.{ .x = 170, .y = 28, .width = 70, .height = Consts.TOOLBAR_ITEM_HEIGHT }, "", &clipboardPixelSize, Consts.CLIPBOARD_PIXEL_SIZE_MIN, Consts.CLIPBOARD_PIXEL_SIZE_MAX, false);
 
     if (clipboardPixelSize != prevClipboardPixelSize) {
         prevClipboardPixelSize = clipboardPixelSize;
@@ -1083,14 +1090,14 @@ pub fn handleAndDrawToolbar() anyerror!void {
 
     rl.drawTextEx(font, "Show grid:", .{ .x = 248, .y = 16 }, 12, 0, lineColor);
 
-    _ = rg.guiToggle(.{ .x = 248, .y = 28, .width = 60, .height = 24 }, "#97#", &clipboardGrid);
+    _ = rg.guiToggle(.{ .x = 248, .y = 28, .width = 60, .height = Consts.TOOLBAR_ITEM_HEIGHT }, "#97#", &clipboardGrid);
 
     // Editor window
     _ = rg.guiGroupBox(.{ .x = 320, .y = 8, .width = 232, .height = Consts.TOOLBAR_HEIGHT - 12 }, "Editor window");
 
     rl.drawTextEx(font, "Pixel size:", .{ .x = 328, .y = 16 }, 12, 0, lineColor);
 
-    _ = rg.guiSpinner(.{ .x = 328, .y = 28, .width = 70, .height = 24 }, "", &editorPixelSize, Consts.EDITOR_PIXEL_SIZE_MIN, Consts.EDITOR_PIXEL_SIZE_MAX, false);
+    _ = rg.guiSpinner(.{ .x = 328, .y = 28, .width = 70, .height = Consts.TOOLBAR_ITEM_HEIGHT }, "", &editorPixelSize, Consts.EDITOR_PIXEL_SIZE_MIN, Consts.EDITOR_PIXEL_SIZE_MAX, false);
 
     if (editorPixelSize != prevEditorPixelSize) {
         editorPixelSize = prevEditorPixelSize + (editorPixelSize - prevEditorPixelSize) * Consts.EDITOR_PIXEL_SIZE_MULTIPLIER;
@@ -1104,11 +1111,11 @@ pub fn handleAndDrawToolbar() anyerror!void {
 
     rl.drawTextEx(font, "Show grid:", .{ .x = 406, .y = 16 }, 12, 0, lineColor);
 
-    _ = rg.guiToggle(.{ .x = 406, .y = 28, .width = 60, .height = 24 }, "#97#", &editorGrid);
+    _ = rg.guiToggle(.{ .x = 406, .y = 28, .width = 60, .height = Consts.TOOLBAR_ITEM_HEIGHT }, "#97#", &editorGrid);
 
     rl.drawTextEx(font, "Square size:", .{ .x = 474, .y = 16 }, 12, 0, lineColor);
 
-    _ = rg.guiSpinner(.{ .x = 474, .y = 28, .width = 70, .height = 24 }, "", &editorTilesSquareSize, Consts.EDITOR_SQUARE_SIZE_MIN, Consts.EDITOR_SQUARE_SIZE_MAX, false);
+    _ = rg.guiSpinner(.{ .x = 474, .y = 28, .width = 70, .height = Consts.TOOLBAR_ITEM_HEIGHT }, "", &editorTilesSquareSize, Consts.EDITOR_SQUARE_SIZE_MIN, Consts.EDITOR_SQUARE_SIZE_MAX, false);
 
     if (editorTilesSquareSize != prevEditorTilesSquareSize) {
         prevEditorTilesSquareSize = editorTilesSquareSize;
@@ -1143,7 +1150,7 @@ pub fn handleAndDrawToolbar() anyerror!void {
     );
 
     const pixelModeDropdownResult: i32 = rg.guiDropdownBox(
-        .{ .x = 564, .y = 28, .width = 170, .height = 24 },
+        .{ .x = 564, .y = 28, .width = 170, .height = Consts.TOOLBAR_ITEM_HEIGHT },
         " 1 BPP; 2 BPP NES; 2 BPP Virtual Boy; 2 BPP Neo Geo Pocket; 2 BPP GB, GBC; 3 BPP SNES; 4 BPP SMS, GG, WSC; 4 BPP Genesis; 4 BPP SNES; 4 BPP GBA; 8 BPP SNES; 8 BPP SNES (Mode7), GBA",
         &pixelMode,
         pixelModeDropdownActive,
@@ -1167,7 +1174,7 @@ pub fn handleAndDrawToolbar() anyerror!void {
 
     rl.drawTextEx(font, "Offset:", .{ .x = 742, .y = 16 }, 12, 0, lineColor);
 
-    _ = rg.guiSpinner(.{ .x = 742, .y = 28, .width = 70, .height = 24 }, "", &tilesOffset, 0, 16, false);
+    _ = rg.guiSpinner(.{ .x = 742, .y = 28, .width = 70, .height = Consts.TOOLBAR_ITEM_HEIGHT }, "", &tilesOffset, 0, 16, false);
 
     if (tilesOffset != prevTilesOffset) {
         setROMOffset(tilesOffset);
@@ -1180,8 +1187,8 @@ pub fn handleAndDrawToolbar() anyerror!void {
     const saveResult: i32 = rg.guiButton(.{
         .x = 820,
         .y = 28,
-        .width = 24,
-        .height = 24,
+        .width = Consts.TOOLBAR_ITEM_HEIGHT,
+        .height = Consts.TOOLBAR_ITEM_HEIGHT,
     }, "#2#");
 
     if (saveResult != 0) {
@@ -1204,7 +1211,7 @@ pub fn handleAndDrawToolbar() anyerror!void {
     );
 
     const styleDropdownResult: i32 = rg.guiDropdownBox(
-        .{ .x = 864, .y = 28, .width = 100, .height = 24 },
+        .{ .x = 864, .y = 28, .width = 100, .height = Consts.TOOLBAR_ITEM_HEIGHT },
         " Amber; Ashes; Bluish; Candy; Cherry; Cyber; Dark; Enefete; Jungle; Lavanda; Sunny; Terminal",
         &styleIndex,
         styleDropdownActive,
@@ -1229,9 +1236,43 @@ pub fn handleAndDrawToolbar() anyerror!void {
     rg.guiUnlock();
 }
 
+pub fn drawStatusbar() anyerror!void {
+    rl.drawRectangle(
+        0,
+        Consts.TOOLBAR_HEIGHT + fw.GuiFloatWindow.BORDER_WIDTH,
+        rl.getScreenWidth(),
+        Consts.STATUSBAR_HEIGHT,
+        backgroundColor,
+    );
+
+    rl.drawLine(
+        0,
+        Consts.TOOLBAR_HEIGHT + Consts.STATUSBAR_HEIGHT + fw.GuiFloatWindow.BORDER_WIDTH,
+        rl.getScreenWidth(),
+        Consts.TOOLBAR_HEIGHT + Consts.STATUSBAR_HEIGHT + fw.GuiFloatWindow.BORDER_WIDTH,
+        lineColor,
+    );
+
+    var buffer: [256]u8 = .{0} ** 256;
+
+    const text: [:0]u8 = try std.fmt.bufPrintZ(
+        &buffer,
+        "Address: {X:0>8}        File name: {s}        File size: {d} bytes",
+        .{
+            @as(u32, @bitCast(romAddress + romOffset)),
+            if (romFileName != null) rl.getFileName(romFileName.?) else "-",
+            if (romData.len > 0) romData.len else 0,
+        },
+    );
+
+    rl.drawTextEx(font, text, .{ .x = 4, .y = Consts.TOOLBAR_HEIGHT + 6 }, 16, 0, lineColor);
+}
+
 pub fn main() anyerror!u8 {
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = std.heap.GeneralPurposeAllocator(.{}){};
-    const gpa_allocator: std.mem.Allocator = gpa.allocator();
+    gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+
+    gpa_allocator = gpa.allocator();
 
     rl.setConfigFlags(.{ .window_resizable = true });
 
@@ -1241,11 +1282,6 @@ pub fn main() anyerror!u8 {
         "Startile",
     );
     defer rl.closeWindow();
-
-    rl.setWindowMinSize(
-        976,
-        Consts.TOOLBAR_HEIGHT + fw.GuiFloatWindow.HEADER_HEIGHT,
-    );
 
     rl.setTargetFPS(60);
 
@@ -1335,6 +1371,11 @@ pub fn main() anyerror!u8 {
     try windows.append(palleteWindow);
     try windows.append(selectorWindow);
 
+    rl.setWindowMinSize(
+        976,
+        Consts.TOOLBAR_HEIGHT + Consts.STATUSBAR_HEIGHT + fw.GuiFloatWindow.HEADER_HEIGHT + fw.GuiFloatWindow.BORDER_WIDTH,
+    );
+
     while (!rl.windowShouldClose()) {
         rl.beginDrawing();
         defer rl.endDrawing();
@@ -1360,6 +1401,8 @@ pub fn main() anyerror!u8 {
 
         try handleAndDrawWindows();
 
+        try drawStatusbar();
+
         try handleAndDrawToolbar();
 
         const screenWidth: i32 = rl.getScreenWidth();
@@ -1371,6 +1414,10 @@ pub fn main() anyerror!u8 {
 
             ensureWindowsVisibility();
         }
+    }
+
+    if (romFileName != null) {
+        gpa_allocator.free(romFileName.?);
     }
 
     return 0;

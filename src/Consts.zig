@@ -1,8 +1,10 @@
 pub const FONT_DATA = @embedFile("embed/firacodebold.ttf");
 
 pub const TOOLBAR_HEIGHT: i32 = 64;
-pub const TOOLBAR_ITEM_HEIGHT: i32 = 32;
+pub const TOOLBAR_ITEM_HEIGHT: i32 = 24;
 pub const TOOLBAR_PADDING: i32 = @divFloor(TOOLBAR_HEIGHT - TOOLBAR_ITEM_HEIGHT, 2);
+
+pub const STATUSBAR_HEIGHT: i32 = 24;
 
 pub const TILES_TILES_PER_LINE: i32 = 16;
 pub const TILES_LINES: i32 = 24;

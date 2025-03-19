@@ -467,7 +467,7 @@ pub const GuiFloatWindow: type = struct {
 
                 self.windowRect.y = std.math.clamp(
                     self.windowRect.y + delta.y,
-                    @as(f32, @floatFromInt(Consts.TOOLBAR_HEIGHT)),
+                    @as(f32, @floatFromInt(Consts.TOOLBAR_HEIGHT + Consts.STATUSBAR_HEIGHT + GuiFloatWindow.BORDER_WIDTH)),
                     @as(f32, @floatFromInt(rl.getScreenHeight() - GuiFloatWindow.HEADER_HEIGHT)),
                 );
 
