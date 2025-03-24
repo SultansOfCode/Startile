@@ -7,7 +7,7 @@ It is the second tool from a set created for ROM hacking (any file in reality). 
 - [Stardust](https://github.com/SultansOfCode/Stardust): a simple hexadecimal editor with extra features like symbols' table and relative search
 - [Starpatch](https://github.com/SultansOfCode/Starpatch): a simple file patcher
 
-All these projects were developed to better learn Zig and raylib
+All these projects were developed to better learn Zig and raylib, while fulfilling some nostalgia from the early 2000's
 
 <div style="text-align: center">
   <img alt="Main screen" src="https://github.com/SultansOfCode/Startile/blob/main/docs/main_screen.png?raw=true" />
